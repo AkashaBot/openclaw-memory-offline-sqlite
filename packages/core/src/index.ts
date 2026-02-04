@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 export type MemConfig = {
   dbPath: string;
   ollamaBaseUrl?: string; // default http://127.0.0.1:11434
-  embeddingModel?: string; // default nomic-embed-text
+  embeddingModel?: string; // default bge-m3
 };
 
 export function openDb(dbPath: string): any {
