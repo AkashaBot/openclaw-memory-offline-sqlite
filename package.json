@@ -4,6 +4,12 @@
   "workspaces": [
     "packages/*"
   ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "smoke": "node ./scripts/smoke-test.mjs",
+    "ci": "npm run typecheck && npm run smoke"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.6.3"
