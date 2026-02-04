@@ -286,8 +286,33 @@ export async function hybridSearch(
   const candidates = opts?.candidates ?? Math.max(50, topK);
   const w = opts?.semanticWeight ?? 0.7;
 
-  const lex = lexicalSearch(db, query, candidates);
-  if (lex.length === 0) return [];
+  let lex = lexicalSearch(db, query, candidates);
+  if (lex.length === 0) {
+    // If lexical search finds nothing (common when querying in natural language),
+    // fall back to a recency-based candidate set and rely on semantic rerank.
+    const rows = db
+      .prepare(
+        `SELECT id, created_at, source, source_id, title, text, tags, meta
+         FROM items
+         ORDER BY created_at DESC
+         LIMIT ?`
+      )
+      .all(candidates) as any[];
+
+    lex = rows.map((r) => ({
+      item: {
+        id: r.id,
+        created_at: r.created_at,
+        source: r.source,
+        source_id: r.source_id,
+        title: r.title,
+        text: r.text,
+        tags: r.tags,
+        meta: r.meta,
+      },
+      lexicalScore: 0,
+    }));
+  }
 
   let queryEmb: { vector: Float32Array; dims: number; model: string } | null = null;
   try {
