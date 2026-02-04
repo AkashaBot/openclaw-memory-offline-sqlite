@@ -1,0 +1,14 @@
+{
+  "name": "@akasha/openclaw-mem",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "openclaw-mem": "./dist/cli.js"
+  },
+  "main": "./dist/cli.js",
+  "dependencies": {
+    "commander": "^12.1.0",
+    "uuid": "^10.0.0",
+    "@akasha/openclaw-memory-offline-core": "0.0.1"
+  }
+}
