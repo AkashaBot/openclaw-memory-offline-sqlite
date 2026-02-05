@@ -23,6 +23,15 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Guard: no tsbuildinfo committed
+        run: |
+          # Fail if any TypeScript build info files are tracked (these break incremental builds in CI)
+          if git ls-files | grep -iE "\\.tsbuildinfo$"; then
+            echo "Error: tsbuildinfo files must not be committed. Remove them from git and keep them in .gitignore." >&2
+            exit 1
+          fi
+        shell: bash
+
       - name: Build
         run: npx tsc -b
 
