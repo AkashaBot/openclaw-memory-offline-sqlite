@@ -11,6 +11,9 @@ packages/**/dist/
 *.sqlite-wal
 *.sqlite-shm
 
+# build cache
+*.tsbuildinfo
+
 # logs
 npm-debug.log*
 yarn-debug.log*

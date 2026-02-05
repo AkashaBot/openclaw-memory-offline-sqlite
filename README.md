@@ -21,6 +21,15 @@ npx tsc -b
 
 ## CLI
 
+### Realistic test
+
+PowerShell (Windows):
+```powershell
+cd C:\Users\algon\clawd\openclaw-memory-offline-sqlite
+npx tsc -b
+.\scripts\realistic-test.ps1 -OllamaBaseUrl http://192.168.1.168:11434 -EmbeddingModel bge-m3
+```
+
 ### Init
 ```bash
 # Either ordering works:
