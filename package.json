@@ -8,7 +8,8 @@
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
     "smoke": "node ./scripts/smoke-test.mjs",
-    "ci": "npm run typecheck && npm run smoke"
+    "test": "npm run build && node --test packages/core/test/*.test.mjs",
+    "ci": "npm run typecheck && npm run smoke && npm run test"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
