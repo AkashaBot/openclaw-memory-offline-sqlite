@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>OpenClaw Offline Memory (SQLite)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #050816;
+      --bg-alt: #0f172a;
+      --accent: #38bdf8;
+      --accent-soft: rgba(56, 189, 248, 0.15);
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --border: #1f2937;
+      --card-radius: 14px;
+      --shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.85);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      background: radial-gradient(circle at top, #1e293b 0, #020617 55%, #000 100%);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px 64px;
+    }
+
+    .shell {
+      width: 100%;
+      max-width: 960px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 32px;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 14px;
+      background: radial-gradient(circle at 30% 0%, #e5e7eb 0, #0f172a 55%, #020617 100%);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.9);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .logo::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 20% 0%, rgba(56,189,248,0.25), transparent 60%);
+      mix-blend-mode: screen;
+      opacity: 0.9;
+    }
+
+    .logo-mark {
+      position: relative;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: #e5e7eb;
+    }
+
+    .brand-title {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .brand-title span:first-child {
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--muted);
+    }
+
+    .brand-title span:last-child {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 16px;
+      font-size: 14px;
+      color: var(--muted);
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .nav-links a {
+      padding: 4px 0;
+      border-bottom: 1px solid transparent;
+    }
+
+    .nav-links a:hover {
+      border-bottom-color: rgba(148, 163, 184, 0.6);
+      text-decoration: none;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+      gap: 24px;
+    }
+
+    @media (max-width: 840px) {
+      main {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .hero-card {
+      background: radial-gradient(circle at top left, rgba(56,189,248,0.18), transparent 45%),
+                  linear-gradient(to bottom right, #020617, #020617);
+      border-radius: 20px;
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      padding: 22px 22px 20px;
+      box-shadow: var(--shadow-soft);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .hero-pill-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: #22c55e;
+      box-shadow: 0 0 10px rgba(34,197,94,0.8);
+    }
+
+    h1 {
+      font-size: 28px;
+      line-height: 1.2;
+      margin: 0 0 10px;
+    }
+
+    .hero-subtitle {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 16px;
+      max-width: 38rem;
+    }
+
+    .hero-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+
+    .badge {
+      font-size: 11px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(15, 23, 42, 0.85);
+      color: var(--muted);
+    }
+
+    .badge-accent {
+      border-color: rgba(56,189,248, 0.8);
+      background: rgba(15, 23, 42, 0.96);
+      color: var(--accent);
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .btn-primary,
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      padding: 7px 14px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: linear-gradient(to bottom right, #38bdf8, #0ea5e9);
+      color: #0b1120;
+      border-color: rgba(15, 23, 42, 0.85);
+      font-weight: 600;
+      box-shadow: 0 14px 30px rgba(8,47,73,0.9);
+      text-decoration: none;
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.05);
+      text-decoration: none;
+    }
+
+    .btn-ghost {
+      border-color: rgba(148, 163, 184, 0.4);
+      background: rgba(15, 23, 42, 0.8);
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .btn-ghost:hover {
+      border-color: rgba(148, 163, 184, 0.7);
+      text-decoration: none;
+    }
+
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 11px;
+      color: var(--muted);
+      border-top: 1px solid rgba(15, 23, 42, 0.9);
+      padding-top: 10px;
+      margin-top: 6px;
+    }
+
+    .hero-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .hero-meta-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.75);
+    }
+
+    .side-card {
+      background: rgba(15, 23, 42, 0.88);
+      border-radius: 18px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      padding: 16px 16px 14px;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.9);
+    }
+
+    .side-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .side-subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .checklist {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .checklist li {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      margin-bottom: 6px;
+    }
+
+    .check-icon {
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(34,197,94,0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: #bbf7d0;
+      flex-shrink: 0;
+    }
+
+    .code-block {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      background: #020617;
+      border-radius: 10px;
+      border: 1px solid rgba(15, 23, 42, 0.9);
+      padding: 10px 10px 9px;
+      color: #e5e7eb;
+      overflow-x: auto;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.9);
+    }
+
+    .code-block pre {
+      margin: 0;
+      white-space: pre;
+    }
+
+    footer {
+      margin-top: 32px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    footer a {
+      color: var(--muted);
+      text-decoration: underline;
+      text-decoration-style: dotted;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="shell">
+      <header>
+        <div class="brand">
+          <div class="logo" aria-hidden="true">
+            <span class="logo-mark">OM</span>
+          </div>
+          <div class="brand-title">
+            <span>OpenClaw Memory</span>
+            <span>Offline SQLite + Hybrid Embeddings</span>
+          </div>
+        </div>
+        <nav class="nav-links">
+          <a href="#install">Install</a>
+          <a href="#config">Config</a>
+          <a href="#changelog">Changelog</a>
+          <a href="https://github.com/AkashaBot/openclaw-memory-offline-sqlite" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="hero-card">
+          <div class="hero-pill">
+            <span class="hero-pill-dot"></span>
+            <span>Offline‑first long‑term memory for OpenClaw</span>
+          </div>
+
+          <h1>Persistent memory, zero external calls.</h1>
+          <p class="hero-subtitle">
+            Store and recall your agent's long‑term knowledge in a single SQLite file, with FTS5 search and optional hybrid reranking using local or OpenAI embeddings.
+          </p>
+
+          <div class="hero-badges">
+            <span class="badge badge-accent">SQLite · FTS5</span>
+            <span class="badge">Hybrid search (lexical + embeddings)</span>
+            <span class="badge">Ollama / OpenAI providers</span>
+            <span class="badge">Auto‑recall & auto‑capture</span>
+          </div>
+
+          <div class="hero-actions">
+            <a class="btn-primary" href="#install">
+              <span>Get started</span>
+            </a>
+            <a class="btn-ghost" href="https://github.com/AkashaBot/openclaw-memory-offline-sqlite" target="_blank" rel="noreferrer">
+              <span>View on GitHub</span>
+            </a>
+          </div>
+
+          <div class="hero-meta">
+            <span><span class="hero-meta-dot"></span> npm: @akashabot/openclaw-memory-offline-core</span>
+            <span><span class="hero-meta-dot"></span> CLI: @akashabot/openclaw-mem</span>
+            <span><span class="hero-meta-dot"></span> Plugin: openclaw-memory-offline-sqlite-plugin</span>
+          </div>
+        </section>
+
+        <aside class="side-card" id="install">
+          <div class="side-title">Install &amp; smoke test</div>
+          <div class="side-subtitle">Set up the core library, CLI, and plugin in a few commands.</div>
+
+          <ul class="checklist">
+            <li>
+              <span class="check-icon">1</span>
+              <span>Install the core library and CLI on the machine running OpenClaw.</span>
+            </li>
+            <li>
+              <span class="check-icon">2</span>
+              <span>Clone the plugin repo and add it to your OpenClaw config.</span>
+            </li>
+            <li>
+              <span class="check-icon">3</span>
+              <span>Restart OpenClaw and verify memories are captured &amp; recalled.</span>
+            </li>
+          </ul>
+
+          <div class="code-block">
+            <pre><code># Core + CLI
+npm install @akashabot/openclaw-memory-offline-core
+npm install -g @akashabot/openclaw-mem
+
+# Plugin (example path)
+cd C:\Users\&lt;you&gt;\clawd\repos
+ git clone https://github.com/AkashaBot/openclaw-memory-offline-sqlite-plugin.git
+
+# Smoke test
+openclaw-mem --db memory.sqlite init
+openclaw-mem remember "First memory" --db memory.sqlite
+openclaw-mem search "First" --db memory.sqlite --hybrid</code></pre>
+          </div>
+        </aside>
+      </main>
+
+      <section id="config" style="margin-top:32px;">
+        <div class="side-card" style="margin-bottom:16px;">
+          <div class="side-title">Configure in OpenClaw</div>
+          <div class="side-subtitle">Drop‑in memory plugin for your agents.</div>
+          <div class="code-block">
+            <pre><code>{
+  "plugins": {
+    "load": {
+      "paths": [
+        "C:\\Users\\&lt;you&gt;\\clawd\\repos\\openclaw-memory-offline-sqlite-plugin"
+      ]
+    },
+    "slots": {
+      "memory": "memory-offline-sqlite"
+    },
+    "entries": {
+      "memory-offline-sqlite": {
+        "enabled": true,
+        "config": {
+          "dbPath": "C:\\Users\\&lt;you&gt;\\.openclaw\\memory\\offline.sqlite",
+          "autoRecall": true,
+          "autoCapture": true,
+          "mode": "hybrid",
+          "topK": 5,
+          "candidates": 50,
+          "semanticWeight": 0.7,
+
+          // Provider (ollama | openai)
+          "provider": "ollama",
+          "ollamaBaseUrl": "http://127.0.0.1:11434",
+          "embeddingModel": "bge-m3",
+          "ollamaTimeoutMs": 3000
+        }
+      }
+    }
+  }
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="side-card" id="changelog">
+          <div class="side-title">Changelog</div>
+          <div class="side-subtitle">Key changes and versions.</div>
+          <ul class="checklist" style="margin-bottom:0;">
+            <li>
+              <span class="check-icon">0.1</span>
+              <span>
+                Initial public release.
+                <br />• SQLite + FTS5 schema &amp; triggers
+                <br />• Hybrid search with embedding cache &amp; graceful fallback
+                <br />• Embeddings providers: Ollama &amp; OpenAI
+                <br />• OpenClaw plugin with auto‑recall &amp; auto‑capture hooks
+              </span>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <footer>
+        Built by <a href="https://github.com/AkashaBot" target="_blank" rel="noreferrer">AkashaBot</a>. Project: <a href="https://github.com/AkashaBot/openclaw-memory-offline-sqlite" target="_blank" rel="noreferrer">openclaw-memory-offline-sqlite</a>.
+      </footer>
+    </div>
+  </div>
+</body>
+</html>
