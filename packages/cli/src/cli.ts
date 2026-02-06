@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import fs from 'node:fs';
 import { v4 as uuidv4 } from 'uuid';
-import { addItem, hybridSearch, initSchema, openDb, searchItems } from '@akasha/openclaw-memory-offline-core';
+import { addItem, hybridSearch, initSchema, openDb, searchItems } from '@akashabot/openclaw-memory-offline-core';
 
 const program = new Command();
 
