@@ -23,7 +23,7 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Guard: no tsbuildinfo committed
+      - name: "Guard: no tsbuildinfo committed"
         run: |
           # Fail if any TypeScript build info files are tracked (these break incremental builds in CI)
           if git ls-files | grep -iE "\\.tsbuildinfo$"; then
