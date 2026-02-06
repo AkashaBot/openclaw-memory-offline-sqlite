@@ -2,9 +2,20 @@ import Database from 'better-sqlite3';
 
 export type MemConfig = {
   dbPath: string;
+  // Embeddings provider configuration. Defaults to Ollama+bge-m3 for backward compatibility.
+  provider?: 'ollama' | 'openai';
+
+  // Ollama-specific config
   ollamaBaseUrl?: string; // default http://127.0.0.1:11434
-  embeddingModel?: string; // default bge-m3
   ollamaTimeoutMs?: number; // default 3000
+
+  // OpenAI-specific config
+  openaiBaseUrl?: string; // default https://api.openai.com
+  openaiApiKey?: string;
+  openaiModel?: string; // default text-embedding-3-small
+
+  // Generic embedding model name (used as default for the chosen provider)
+  embeddingModel?: string; // default bge-m3 for Ollama; text-embedding-3-small for OpenAI
 };
 
 export type MemItem = {
@@ -202,7 +213,7 @@ function cosine(a: Float32Array, b: Float32Array): number {
   return denom === 0 ? 0 : dot / denom;
 }
 
-async function fetchEmbedding(
+async function fetchEmbeddingOllama(
   cfg: MemConfig,
   input: string
 ): Promise<{ vector: Float32Array; dims: number; model: string }> {
@@ -230,6 +241,56 @@ async function fetchEmbedding(
   for (let i = 0; i < embedding.length; i++) vec[i] = Number(embedding[i]);
 
   return { vector: vec, dims: vec.length, model };
+}
+
+async function fetchEmbeddingOpenAI(
+  cfg: MemConfig,
+  input: string
+): Promise<{ vector: Float32Array; dims: number; model: string }> {
+  const baseUrl = cfg.openaiBaseUrl ?? 'https://api.openai.com';
+  const apiKey = cfg.openaiApiKey;
+  if (!apiKey) {
+    throw new Error('OpenAI embeddings: missing openaiApiKey in MemConfig');
+  }
+
+  const model = cfg.openaiModel ?? (cfg.embeddingModel || 'text-embedding-3-small');
+  const timeoutMs = cfg.ollamaTimeoutMs ?? 3000;
+
+  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/embeddings`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ model, input }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`OpenAI embeddings failed: ${res.status} ${res.statusText} ${body}`);
+  }
+
+  const json = (await res.json()) as any;
+  const embedding = json?.data?.[0]?.embedding;
+  if (!Array.isArray(embedding)) throw new Error('OpenAI embeddings: missing data[0].embedding');
+
+  const vec = new Float32Array(embedding.length);
+  for (let i = 0; i < embedding.length; i++) vec[i] = Number(embedding[i]);
+
+  return { vector: vec, dims: vec.length, model };
+}
+
+async function fetchEmbedding(
+  cfg: MemConfig,
+  input: string
+): Promise<{ vector: Float32Array; dims: number; model: string }> {
+  const provider = cfg.provider ?? 'ollama';
+  if (provider === 'openai') {
+    return fetchEmbeddingOpenAI(cfg, input);
+  }
+  // Default: Ollama
+  return fetchEmbeddingOllama(cfg, input);
 }
 
 function vectorToBlob(vec: Float32Array): Buffer {

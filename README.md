@@ -67,6 +67,19 @@ openclaw-mem search "..." --hybrid \
   --ollama-timeout-ms 3000
 ```
 
+### OpenAI configuration
+
+The core can also use OpenAI's `/v1/embeddings` endpoint:
+
+```bash
+OPENAI_API_KEY=sk-... openclaw-mem search "..." --hybrid \
+  --provider openai \
+  --openai-base-url https://api.openai.com \
+  --openai-model text-embedding-3-small
+```
+
+If `provider` is omitted, the core defaults to Ollama + `bge-m3` for backwards compatibility.
+
 See `docs/embeddings.md`.
 
 ## Status
@@ -74,3 +87,4 @@ See `docs/embeddings.md`.
 Working MVP:
 - `remember` inserts items into `items` + keeps FTS in sync via triggers.
 - `search` supports `--hybrid` semantic reranking, storing Float32 vectors in the `embeddings` table.
+- Embeddings provider is pluggable (Ollama or OpenAI) behind a common config.
