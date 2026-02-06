@@ -1,5 +1,5 @@
 {
-  "name": "@akasha/openclaw-memory-offline-core",
+  "name": "@akashabot/openclaw-memory-offline-core",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
