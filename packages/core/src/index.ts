@@ -1188,3 +1188,260 @@ export function searchEntities(db: Database.Database, pattern: string, limit = 5
 
   return rows.map(r => r.entity);
 }
+
+// ============================================================================
+// Phase 3: Embedding Optimizations
+// ============================================================================
+
+export type EmbeddingStats = {
+  totalEmbeddings: number;
+  totalSizeBytes: number;
+  avgDims: number;
+  models: Array<{ model: string; count: number; avgDims: number }>;
+};
+
+/**
+ * Get statistics about stored embeddings.
+ */
+export function getEmbeddingStats(db: Database.Database): EmbeddingStats {
+  const totalRow = db
+    .prepare(`SELECT COUNT(*) as count, SUM(LENGTH(vector)) as totalSize, AVG(dims) as avgDims FROM embeddings`)
+    .get() as { count: number; totalSize: number; avgDims: number };
+
+  const modelRows = db
+    .prepare(`SELECT model, COUNT(*) as count, AVG(dims) as avgDims FROM embeddings GROUP BY model`)
+    .all() as { model: string; count: number; avgDims: number }[];
+
+  return {
+    totalEmbeddings: totalRow?.count ?? 0,
+    totalSizeBytes: totalRow?.totalSize ?? 0,
+    avgDims: Math.round((totalRow?.avgDims ?? 0) * 10) / 10,
+    models: modelRows.map(r => ({
+      model: r.model,
+      count: r.count,
+      avgDims: Math.round(r.avgDims * 10) / 10,
+    })),
+  };
+}
+
+/**
+ * Quantize a Float32Array to Float16 (Uint16Array representation).
+ * Reduces storage by 50% with minimal accuracy loss.
+ */
+export function quantizeF32ToF16(vec: Float32Array): Uint16Array {
+  const result = new Uint16Array(vec.length);
+  for (let i = 0; i < vec.length; i++) {
+    const f = vec[i];
+    // Simple Float32 to Float16 conversion
+    // Handles special cases: NaN, Infinity, denormalized numbers
+    if (Number.isNaN(f)) {
+      result[i] = 0x7E00; // Float16 NaN
+    } else if (f === Infinity) {
+      result[i] = 0x7C00; // Float16 +Infinity
+    } else if (f === -Infinity) {
+      result[i] = 0xFC00; // Float16 -Infinity
+    } else {
+      // Standard conversion
+      const buf = new ArrayBuffer(4);
+      const f32 = new Float32Array(buf);
+      const u32 = new Uint32Array(buf);
+      f32[0] = f;
+      const x = u32[0];
+      
+      let sign = (x >>> 31) & 0x1;
+      let exponent = (x >>> 23) & 0xFF;
+      let mantissa = x & 0x7FFFFF;
+      
+      if (exponent === 0) {
+        // Zero or denormalized - map to zero in Float16
+        result[i] = sign << 15;
+      } else if (exponent === 255) {
+        // Infinity or NaN (handled above, but just in case)
+        result[i] = (sign << 15) | 0x7C00 | (mantissa ? 0x200 : 0);
+      } else {
+        // Normalized number
+        exponent = exponent - 127 + 15; // Adjust bias
+        if (exponent >= 31) {
+          // Overflow to Infinity
+          result[i] = (sign << 15) | 0x7C00;
+        } else if (exponent <= 0) {
+          // Underflow to zero or denormalized
+          if (exponent < -10) {
+            result[i] = sign << 15; // Zero
+          } else {
+            // Denormalized
+            mantissa |= 0x800000;
+            const shift = 14 - exponent;
+            result[i] = (sign << 15) | (mantissa >> shift);
+          }
+        } else {
+          // Normal Float16
+          result[i] = (sign << 15) | (exponent << 10) | (mantissa >> 13);
+        }
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Dequantize Float16 (Uint16Array) back to Float32Array.
+ */
+export function dequantizeF16ToF32(vec: Uint16Array): Float32Array {
+  const result = new Float32Array(vec.length);
+  for (let i = 0; i < vec.length; i++) {
+    const h = vec[i];
+    const sign = (h >>> 15) & 0x1;
+    const exponent = (h >>> 10) & 0x1F;
+    const mantissa = h & 0x3FF;
+    
+    if (exponent === 0) {
+      if (mantissa === 0) {
+        // Zero
+        result[i] = sign ? -0 : 0;
+      } else {
+        // Denormalized
+        const e = Math.clz32(mantissa) - 21;
+        result[i] = (sign ? -1 : 1) * (mantissa << e) * Math.pow(2, -24);
+      }
+    } else if (exponent === 31) {
+      // Infinity or NaN
+      result[i] = mantissa ? NaN : (sign ? -Infinity : Infinity);
+    } else {
+      // Normalized
+      result[i] = (sign ? -1 : 1) * Math.pow(2, exponent - 15) * (1 + mantissa / 1024);
+    }
+  }
+  return result;
+}
+
+/**
+ * Compute cosine similarity between two vectors.
+ * Useful for benchmarks and custom similarity searches.
+ */
+export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  if (a.length !== b.length) {
+    throw new Error(`Vector length mismatch: ${a.length} vs ${b.length}`);
+  }
+  
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dotProduct / denom;
+}
+
+/**
+ * Benchmark cosine similarity performance.
+ * Returns ops/sec for computing similarity between two vectors.
+ */
+export function benchmarkCosineSimilarity(dims: number, iterations = 10000): {
+  dims: number;
+  iterations: number;
+  totalTimeMs: number;
+  opsPerSecond: number;
+} {
+  // Generate random vectors
+  const a = new Float32Array(dims);
+  const b = new Float32Array(dims);
+  for (let i = 0; i < dims; i++) {
+    a[i] = Math.random() * 2 - 1;
+    b[i] = Math.random() * 2 - 1;
+  }
+  
+  // Warm up
+  for (let i = 0; i < 100; i++) {
+    cosineSimilarity(a, b);
+  }
+  
+  // Benchmark
+  const start = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    cosineSimilarity(a, b);
+  }
+  const end = performance.now();
+  const totalTimeMs = end - start;
+  
+  return {
+    dims,
+    iterations,
+    totalTimeMs,
+    opsPerSecond: Math.round((iterations / totalTimeMs) * 1000),
+  };
+}
+
+/**
+ * Run a comprehensive benchmark suite for embedding operations.
+ */
+export function runEmbeddingBenchmark(): {
+  f32ToF16: { dims: number; iterations: number; opsPerSecond: number };
+  f16ToF32: { dims: number; iterations: number; opsPerSecond: number };
+  cosine: { dims: number; iterations: number; opsPerSecond: number };
+  cosineF16: { dims: number; iterations: number; opsPerSecond: number };
+} {
+  const dims = 1024;
+  const iterations = 5000;
+  
+  // Generate test vector
+  const f32 = new Float32Array(dims);
+  for (let i = 0; i < dims; i++) {
+    f32[i] = Math.random() * 2 - 1;
+  }
+  
+  // F32 -> F16 conversion benchmark
+  const start1 = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    quantizeF32ToF16(f32);
+  }
+  const f32toF16 = {
+    dims,
+    iterations,
+    opsPerSecond: Math.round((iterations / (performance.now() - start1)) * 1000),
+  };
+  
+  // F16 -> F32 conversion benchmark
+  const f16 = quantizeF32ToF16(f32);
+  const start2 = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    dequantizeF16ToF32(f16);
+  }
+  const f16toF32 = {
+    dims,
+    iterations,
+    opsPerSecond: Math.round((iterations / (performance.now() - start2)) * 1000),
+  };
+  
+  // F32 cosine benchmark
+  const f32b = new Float32Array(dims);
+  for (let i = 0; i < dims; i++) f32b[i] = Math.random() * 2 - 1;
+  const start3 = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    cosineSimilarity(f32, f32b);
+  }
+  const cosine = {
+    dims,
+    iterations,
+    opsPerSecond: Math.round((iterations / (performance.now() - start3)) * 1000),
+  };
+  
+  // F16 cosine (with conversion) benchmark
+  const f16b = quantizeF32ToF16(f32b);
+  const start4 = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    cosineSimilarity(dequantizeF16ToF32(f16), dequantizeF16ToF32(f16b));
+  }
+  const cosineF16 = {
+    dims,
+    iterations,
+    opsPerSecond: Math.round((iterations / (performance.now() - start4)) * 1000),
+  };
+  
+  return { f32ToF16: f32toF16, f16ToF32: f16toF32, cosine, cosineF16 };
+}

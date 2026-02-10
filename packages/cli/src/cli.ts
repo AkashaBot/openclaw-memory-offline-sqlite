@@ -34,6 +34,13 @@ const {
   getGraphStats,
   exportGraphJson,
   searchEntities,
+  // Phase 3: Embedding Optimizations
+  getEmbeddingStats,
+  quantizeF32ToF16,
+  dequantizeF16ToF32,
+  cosineSimilarity,
+  benchmarkCosineSimilarity,
+  runEmbeddingBenchmark,
 } = core;
 
 const program = new Command();
@@ -482,6 +489,34 @@ program
       const entities = searchEntities(db, pattern, limit);
       console.log(JSON.stringify({ ok: true, pattern, count: entities.length, entities }));
     });
+  });
+
+// ============================================================================
+// Phase 3: Embedding Optimization commands
+// ============================================================================
+
+program
+  .command('embedding-stats')
+  .description('Get statistics about stored embeddings')
+  .action(() => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const stats = getEmbeddingStats(db);
+      const sizeMB = Math.round((stats.totalSizeBytes / (1024 * 1024)) * 100) / 100;
+      console.log(JSON.stringify({ ok: true, ...stats, sizeMB }, null, 2));
+    });
+  });
+
+program
+  .command('benchmark')
+  .description('Run embedding operation benchmarks')
+  .option('--dims <n>', 'Vector dimensions (default 1024)', '1024')
+  .option('--iterations <n>', 'Iterations (default 5000)', '5000')
+  .action((cmdOpts) => {
+    console.log('Running embedding benchmarks...\n');
+    const results = runEmbeddingBenchmark();
+    console.log(JSON.stringify({ ok: true, benchmark: results }, null, 2));
   });
 
 program.parse();

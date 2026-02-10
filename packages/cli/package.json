@@ -1,6 +1,6 @@
 {
   "name": "@akashabot/openclaw-mem",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "description": "CLI for OpenClaw Offline Memory (SQLite FTS + optional embeddings)",
   "bin": {
@@ -17,7 +17,7 @@
   "dependencies": {
     "commander": "^12.1.0",
     "uuid": "^10.0.0",
-    "@akashabot/openclaw-memory-offline-core": "^0.4.0"
+    "@akashabot/openclaw-memory-offline-core": "^0.5.0"
   },
   "devDependencies": {
     "@types/uuid": "^10.0.0"
