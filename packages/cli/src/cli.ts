@@ -27,6 +27,13 @@ const {
   listPredicates,
   deleteFact,
   extractFactsSimple,
+  // Phase 3: Knowledge Graph
+  getEntityGraph,
+  getRelatedEntities,
+  findPaths,
+  getGraphStats,
+  exportGraphJson,
+  searchEntities,
 } = core;
 
 const program = new Command();
@@ -379,6 +386,102 @@ program
     const input = text ?? fs.readFileSync(0, 'utf-8');
     const facts = extractFactsSimple(input);
     console.log(JSON.stringify({ ok: true, count: facts.length, facts }));
+  });
+
+// ============================================================================
+// Phase 3: Knowledge Graph commands
+// ============================================================================
+
+program
+  .command('graph-stats')
+  .description('Get statistics about the knowledge graph')
+  .action(() => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const stats = getGraphStats(db);
+      console.log(JSON.stringify({ ok: true, stats }, null, 2));
+    });
+  });
+
+program
+  .command('graph-entity <entity>')
+  .description('Get all facts connected to an entity (as subject or object)')
+  .action((entity: string) => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const edges = getEntityGraph(db, entity);
+      console.log(JSON.stringify({ ok: true, entity, count: edges.length, edges }));
+    });
+  });
+
+program
+  .command('graph-related <entity>')
+  .description('Get all entities directly connected to an entity')
+  .action((entity: string) => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const related = getRelatedEntities(db, entity);
+      console.log(JSON.stringify({ ok: true, entity, count: related.length, related }));
+    });
+  });
+
+program
+  .command('graph-path <fromEntity> <toEntity>')
+  .description('Find paths between two entities in the knowledge graph')
+  .option('--max-depth <n>', 'Maximum path depth (default 4)', '4')
+  .option('--max-paths <n>', 'Maximum number of paths to return (default 5)', '5')
+  .action((fromEntity: string, toEntity: string, cmdOpts) => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const maxDepth = Math.max(1, Math.min(10, Number(cmdOpts.maxDepth ?? 4)));
+      const maxPaths = Math.max(1, Math.min(20, Number(cmdOpts.maxPaths ?? 5)));
+      const paths = findPaths(db, fromEntity, toEntity, maxDepth, maxPaths);
+      console.log(JSON.stringify({ ok: true, from: fromEntity, to: toEntity, count: paths.length, paths }));
+    });
+  });
+
+program
+  .command('graph-export [outputFile]')
+  .description('Export the knowledge graph as JSON (for visualization)')
+  .option('--limit <n>', 'Max edges to export (default 1000)', '1000')
+  .option('--min-confidence <n>', 'Minimum confidence threshold (default 0)', '0')
+  .option('--entity <entity>', 'Export only subgraph around this entity')
+  .action((outputFile: string | undefined, cmdOpts) => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const graph = exportGraphJson(db, {
+        limit: Number(cmdOpts.limit ?? 1000),
+        minConfidence: Number(cmdOpts.minConfidence ?? 0),
+        entity: cmdOpts.entity,
+      });
+
+      const output = JSON.stringify({ ok: true, graph }, null, 2);
+      if (outputFile) {
+        fs.writeFileSync(outputFile, output);
+        console.log(JSON.stringify({ ok: true, file: outputFile, nodes: graph.nodes.length, edges: graph.edges.length }));
+      } else {
+        console.log(output);
+      }
+    });
+  });
+
+program
+  .command('search-entities <pattern>')
+  .description('Search for entities matching a pattern')
+  .option('--limit <n>', 'Max results (default 50)', '50')
+  .action((pattern: string, cmdOpts) => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const limit = Math.max(1, Math.min(500, Number(cmdOpts.limit ?? 50)));
+      const entities = searchEntities(db, pattern, limit);
+      console.log(JSON.stringify({ ok: true, pattern, count: entities.length, entities }));
+    });
   });
 
 program.parse();

@@ -1,5 +1,0 @@
-chore: prepare for npm publishing v0.2.0
-
-- Add repository, author, license fields to package.json files
-- Update CLI dependency on core to ^0.2.0 (from workspace *)
-- Add RELEASE_NOTES.md for GitHub release

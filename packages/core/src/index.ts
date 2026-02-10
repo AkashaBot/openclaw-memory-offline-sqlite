@@ -915,3 +915,276 @@ export function extractFactsSimple(text: string, entityId?: string): Array<{
     return true;
   });
 }
+
+// ============================================================================
+// Phase 3: Knowledge Graph
+// ============================================================================
+
+export type GraphEdge = {
+  subject: string;
+  predicate: string;
+  object: string;
+  confidence: number;
+};
+
+export type GraphPath = {
+  from: string;
+  to: string;
+  path: Array<{ entity: string; edge?: GraphEdge }>;
+  length: number;
+};
+
+export type GraphStats = {
+  totalFacts: number;
+  totalEntities: number;
+  totalPredicates: number;
+  avgConnectionsPerEntity: number;
+  mostConnectedEntities: Array<{ entity: string; connections: number }>;
+  mostUsedPredicates: Array<{ predicate: string; count: number }>;
+};
+
+/**
+ * Get all facts where the entity is either subject or object.
+ */
+export function getEntityGraph(db: Database.Database, entity: string): GraphEdge[] {
+  const rows = db
+    .prepare(
+      `SELECT subject, predicate, object, confidence
+       FROM facts
+       WHERE subject = ? OR object = ?
+       ORDER BY confidence DESC`
+    )
+    .all(entity, entity) as any[];
+
+  return rows.map(r => ({
+    subject: r.subject,
+    predicate: r.predicate,
+    object: r.object,
+    confidence: r.confidence,
+  }));
+}
+
+/**
+ * Get all entities directly connected to a given entity.
+ */
+export function getRelatedEntities(db: Database.Database, entity: string): string[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT CASE 
+         WHEN subject = ? THEN object 
+         ELSE subject 
+       END AS related
+       FROM facts
+       WHERE subject = ? OR object = ?`
+    )
+    .all(entity, entity, entity) as { related: string }[];
+
+  return rows.map(r => r.related).filter(e => e !== entity);
+}
+
+/**
+ * Find paths between two entities using BFS (breadth-first search).
+ * Returns up to `maxPaths` paths with a maximum depth of `maxDepth`.
+ */
+export function findPaths(
+  db: Database.Database,
+  fromEntity: string,
+  toEntity: string,
+  maxDepth = 4,
+  maxPaths = 5
+): GraphPath[] {
+  // Get all edges for efficient graph traversal
+  const allEdges = db
+    .prepare(`SELECT subject, predicate, object, confidence FROM facts`)
+    .all() as any[];
+
+  // Build adjacency list (undirected - we can traverse both ways)
+  const adjacency = new Map<string, Array<{ entity: string; edge: GraphEdge }>>();
+  for (const e of allEdges) {
+    const edge: GraphEdge = {
+      subject: e.subject,
+      predicate: e.predicate,
+      object: e.object,
+      confidence: e.confidence,
+    };
+
+    if (!adjacency.has(e.subject)) adjacency.set(e.subject, []);
+    if (!adjacency.has(e.object)) adjacency.set(e.object, []);
+    
+    adjacency.get(e.subject)!.push({ entity: e.object, edge });
+    adjacency.get(e.object)!.push({ entity: e.subject, edge });
+  }
+
+  // BFS to find paths
+  const paths: GraphPath[] = [];
+  const queue: Array<{ entity: string; path: Array<{ entity: string; edge?: GraphEdge }> }> = [
+    { entity: fromEntity, path: [{ entity: fromEntity }] }
+  ];
+  const visited = new Set<string>();
+
+  while (queue.length > 0 && paths.length < maxPaths) {
+    const current = queue.shift()!;
+    
+    if (current.entity === toEntity && current.path.length > 1) {
+      paths.push({
+        from: fromEntity,
+        to: toEntity,
+        path: current.path,
+        length: current.path.length - 1,
+      });
+      continue;
+    }
+
+    if (current.path.length > maxDepth) continue;
+
+    const neighbors = adjacency.get(current.entity) || [];
+    for (const neighbor of neighbors) {
+      const pathKey = `${current.entity}|${neighbor.entity}`;
+      if (visited.has(pathKey)) continue;
+      visited.add(pathKey);
+
+      queue.push({
+        entity: neighbor.entity,
+        path: [...current.path, { entity: neighbor.entity, edge: neighbor.edge }],
+      });
+    }
+  }
+
+  return paths.sort((a, b) => a.length - b.length);
+}
+
+/**
+ * Get statistics about the knowledge graph.
+ */
+export function getGraphStats(db: Database.Database): GraphStats {
+  // Total facts
+  const totalFactsRow = db.prepare(`SELECT COUNT(*) as count FROM facts`).get() as { count: number };
+  const totalFacts = totalFactsRow?.count ?? 0;
+
+  // Total unique entities (subjects + objects)
+  const entitiesRow = db
+    .prepare(
+      `SELECT COUNT(DISTINCT entity) as count FROM (
+         SELECT subject as entity FROM facts
+         UNION
+         SELECT object as entity FROM facts
+       )`
+    )
+    .get() as { count: number };
+  const totalEntities = entitiesRow?.count ?? 0;
+
+  // Total predicates
+  const predicatesRow = db
+    .prepare(`SELECT COUNT(DISTINCT predicate) as count FROM facts`)
+    .get() as { count: number };
+  const totalPredicates = predicatesRow?.count ?? 0;
+
+  // Most connected entities
+  const mostConnected = db
+    .prepare(
+      `SELECT entity, COUNT(*) as connections FROM (
+         SELECT subject as entity FROM facts
+         UNION ALL
+         SELECT object as entity FROM facts
+       ) GROUP BY entity ORDER BY connections DESC LIMIT 10`
+    )
+    .all() as { entity: string; connections: number }[];
+
+  // Most used predicates
+  const mostUsedPredicates = db
+    .prepare(
+      `SELECT predicate, COUNT(*) as count FROM facts GROUP BY predicate ORDER BY count DESC LIMIT 10`
+    )
+    .all() as { predicate: string; count: number }[];
+
+  // Average connections per entity
+  const avgConnections = totalEntities > 0 
+    ? Math.round((totalFacts * 2 / totalEntities) * 10) / 10 
+    : 0;
+
+  return {
+    totalFacts,
+    totalEntities,
+    totalPredicates,
+    avgConnectionsPerEntity: avgConnections,
+    mostConnectedEntities: mostConnected,
+    mostUsedPredicates: mostUsedPredicates,
+  };
+}
+
+/**
+ * Export the graph as JSON (for visualization tools).
+ */
+export function exportGraphJson(
+  db: Database.Database,
+  options?: { 
+    limit?: number; 
+    minConfidence?: number;
+    entity?: string; // Export only subgraph around this entity
+  }
+): { nodes: Array<{ id: string; label: string }>; edges: Array<{ from: string; to: string; label: string; confidence: number }> } {
+  let facts: any[];
+  
+  if (options?.entity) {
+    facts = db
+      .prepare(
+        `SELECT subject, predicate, object, confidence FROM facts
+         WHERE subject = ? OR object = ?
+         ORDER BY confidence DESC
+         LIMIT ?`
+      )
+      .all(options.entity, options.entity, options?.limit ?? 1000) as any[];
+  } else if (options?.minConfidence) {
+    facts = db
+      .prepare(
+        `SELECT subject, predicate, object, confidence FROM facts
+         WHERE confidence >= ?
+         ORDER BY confidence DESC
+         LIMIT ?`
+      )
+      .all(options.minConfidence, options?.limit ?? 1000) as any[];
+  } else {
+    facts = db
+      .prepare(
+        `SELECT subject, predicate, object, confidence FROM facts
+         ORDER BY confidence DESC
+         LIMIT ?`
+      )
+      .all(options?.limit ?? 1000) as any[];
+  }
+
+  // Build unique nodes
+  const nodeSet = new Set<string>();
+  for (const f of facts) {
+    nodeSet.add(f.subject);
+    nodeSet.add(f.object);
+  }
+
+  const nodes = Array.from(nodeSet).map(id => ({ id, label: id }));
+  const edges = facts.map(f => ({
+    from: f.subject,
+    to: f.object,
+    label: f.predicate,
+    confidence: f.confidence,
+  }));
+
+  return { nodes, edges };
+}
+
+/**
+ * Find all entities matching a pattern (LIKE search).
+ */
+export function searchEntities(db: Database.Database, pattern: string, limit = 50): string[] {
+  const likePattern = `%${pattern}%`;
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT entity FROM (
+         SELECT subject as entity FROM facts WHERE subject LIKE ?
+         UNION
+         SELECT object as entity FROM facts WHERE object LIKE ?
+       ) LIMIT ?`
+    )
+    .all(likePattern, likePattern, limit) as { entity: string }[];
+
+  return rows.map(r => r.entity);
+}
