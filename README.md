@@ -6,6 +6,7 @@ Features:
 - SQLite single-file DB (WAL)
 - FTS5 lexical search (BM25)
 - Optional semantic rerank using local embeddings via Ollama (`POST /v1/embeddings`)
+- **Phase 1 (v0.2.0): Attribution & Session Grouping**
 
 Default embedding model: `bge-m3`.
 
@@ -37,12 +38,20 @@ openclaw-mem --db memory.sqlite init
 # openclaw-mem init --db memory.sqlite
 ```
 
-### Remember
+### Remember (with attribution)
 ```bash
+# Basic usage
 openclaw-mem remember "Met Alice at the cafe, she likes espresso" \
   --db memory.sqlite \
   --title "Coffee chat" \
   --tags "people,alice"
+
+# With attribution (Phase 1)
+openclaw-mem remember "Loïc prefers autonomous agent behavior" \
+  --db memory.sqlite \
+  --entity-id "loic" \
+  --process-id "akasha" \
+  --session-id "2026-02-10-main"
 ```
 
 ### Search (lexical)
@@ -57,6 +66,16 @@ If Ollama is unavailable (down, timeout, model missing), it **automatically fall
 
 ```bash
 openclaw-mem search "what did Alice drink" --db memory.sqlite --hybrid --limit 5
+```
+
+### Search with filter (Phase 1)
+Filter memories by entity, process, or session:
+```bash
+# What did Loïc tell me?
+openclaw-mem search "preferences" --db memory.sqlite --entity-id "loic"
+
+# What happened in this session?
+openclaw-mem search "" --db memory.sqlite --session-id "2026-02-10-main"
 ```
 
 ### Ollama configuration
@@ -82,9 +101,68 @@ If `provider` is omitted, the core defaults to Ollama + `bge-m3` for backwards c
 
 See `docs/embeddings.md`.
 
+## API (packages/core)
+
+### Basic usage
+```typescript
+import { openDb, initSchema, runMigrations, addItem, hybridSearch } from '@akashabot/openclaw-memory-offline-core';
+
+const db = openDb('memory.sqlite');
+initSchema(db);
+runMigrations(db);  // Safe to call on every startup
+
+// Add memory with attribution
+addItem(db, {
+  id: 'mem-001',
+  text: 'Loïc prefers autonomous agent behavior',
+  entity_id: 'loic',      // Who said this
+  process_id: 'akasha',   // Which agent captured it
+  session_id: '2026-02-10-main'  // Session grouping
+});
+
+// Search
+const results = await hybridSearch(db, config, 'preferences', { topK: 5 });
+```
+
+### Attribution & Session APIs (Phase 1)
+
+```typescript
+import {
+  getMemoriesByEntity,
+  getMemoriesBySession,
+  getMemoriesByProcess,
+  hybridSearchFiltered,
+  listEntities,
+  listSessions
+} from '@akashabot/openclaw-memory-offline-core';
+
+// Get all memories from a specific entity
+const loicsThoughts = getMemoriesByEntity(db, 'loic');
+
+// Get all memories from a session
+const sessionMemories = getMemoriesBySession(db, '2026-02-10-main');
+
+// Search with filter
+const filtered = await hybridSearchFiltered(db, config, 'preferences', {
+  topK: 10,
+  filter: { entity_id: 'loic' }
+});
+
+// List all entities
+const entities = listEntities(db);  // ['loic', 'system', 'akasha', ...]
+```
+
 ## Status
 
 Working MVP:
 - `remember` inserts items into `items` + keeps FTS in sync via triggers.
 - `search` supports `--hybrid` semantic reranking, storing Float32 vectors in the `embeddings` table.
 - Embeddings provider is pluggable (Ollama or OpenAI) behind a common config.
+
+**Phase 1 (v0.2.0):**
+- ✅ Attribution: `entity_id`, `process_id` for source tracking
+- ✅ Session grouping: `session_id` for conversation context
+- ✅ Filtered search: `hybridSearchFiltered()`, `getMemoriesByEntity()`, etc.
+- ✅ Automatic migration for existing databases
+
+See [ROADMAP](docs/roadmap.md) for planned features.

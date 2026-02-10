@@ -27,6 +27,10 @@ export type MemItem = {
   text: string;
   tags: string | null;
   meta: string | null;
+  // Phase 1: Attribution & Session
+  entity_id: string | null;   // Who said/wrote this (user, agent, system)
+  process_id: string | null;  // Which agent/process captured this
+  session_id: string | null;  // Session/conversation grouping
 };
 
 export type InsertItemInput = Omit<MemItem, 'created_at'> & { created_at?: number };
@@ -51,7 +55,11 @@ export function initSchema(db: Database.Database) {
       title TEXT,
       text TEXT NOT NULL,
       tags TEXT,
-      meta TEXT
+      meta TEXT,
+      -- Phase 1: Attribution & Session
+      entity_id TEXT,
+      process_id TEXT,
+      session_id TEXT
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
@@ -88,6 +96,39 @@ export function initSchema(db: Database.Database) {
       updated_at INTEGER NOT NULL,
       FOREIGN KEY(item_id) REFERENCES items(id)
     );
+
+    -- Indexes for Phase 1: Attribution & Session filtering
+    CREATE INDEX IF NOT EXISTS idx_items_entity_id ON items(entity_id);
+    CREATE INDEX IF NOT EXISTS idx_items_process_id ON items(process_id);
+    CREATE INDEX IF NOT EXISTS idx_items_session_id ON items(session_id);
+  `);
+}
+
+/**
+ * Run migrations for existing databases that lack Phase 1 columns.
+ * Safe to call on every startup - will only add missing columns.
+ */
+export function runMigrations(db: Database.Database) {
+  const cols = db.prepare("PRAGMA table_info(items)").all() as { name: string }[];
+  const existing = new Set(cols.map(c => c.name));
+
+  const migrations = [
+    { col: 'entity_id', sql: 'ALTER TABLE items ADD COLUMN entity_id TEXT' },
+    { col: 'process_id', sql: 'ALTER TABLE items ADD COLUMN process_id TEXT' },
+    { col: 'session_id', sql: 'ALTER TABLE items ADD COLUMN session_id TEXT' },
+  ];
+
+  for (const m of migrations) {
+    if (!existing.has(m.col)) {
+      db.exec(m.sql);
+    }
+  }
+
+  // Ensure indexes exist (safe to repeat)
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_items_entity_id ON items(entity_id);
+    CREATE INDEX IF NOT EXISTS idx_items_process_id ON items(process_id);
+    CREATE INDEX IF NOT EXISTS idx_items_session_id ON items(session_id);
   `);
 }
 
@@ -131,8 +172,8 @@ export function insertItem(db: Database.Database, input: InsertItemInput): MemIt
   const now = input.created_at ?? Date.now();
 
   const stmt = db.prepare(`
-    INSERT INTO items (id, created_at, source, source_id, title, text, tags, meta)
-    VALUES (@id, @created_at, @source, @source_id, @title, @text, @tags, @meta)
+    INSERT INTO items (id, created_at, source, source_id, title, text, tags, meta, entity_id, process_id, session_id)
+    VALUES (@id, @created_at, @source, @source_id, @title, @text, @tags, @meta, @entity_id, @process_id, @session_id)
   `);
 
   stmt.run({
@@ -144,6 +185,9 @@ export function insertItem(db: Database.Database, input: InsertItemInput): MemIt
     text: input.text,
     tags: input.tags ?? null,
     meta: input.meta ?? null,
+    entity_id: input.entity_id ?? null,
+    process_id: input.process_id ?? null,
+    session_id: input.session_id ?? null,
   });
 
   return {
@@ -155,6 +199,9 @@ export function insertItem(db: Database.Database, input: InsertItemInput): MemIt
     text: input.text,
     tags: input.tags ?? null,
     meta: input.meta ?? null,
+    entity_id: input.entity_id ?? null,
+    process_id: input.process_id ?? null,
+    session_id: input.session_id ?? null,
   };
 }
 
@@ -171,6 +218,9 @@ export function lexicalSearch(db: Database.Database, query: string, limit = 10):
         i.text,
         i.tags,
         i.meta,
+        i.entity_id,
+        i.process_id,
+        i.session_id,
         bm25(items_fts) AS bm25
       FROM items_fts
       JOIN items i ON i.rowid = items_fts.rowid
@@ -191,6 +241,9 @@ export function lexicalSearch(db: Database.Database, query: string, limit = 10):
       text: r.text,
       tags: r.tags,
       meta: r.meta,
+      entity_id: r.entity_id,
+      process_id: r.process_id,
+      session_id: r.session_id,
     },
     // bm25: lower is better; flip sign so higher is better
     lexicalScore: -Number(r.bm25),
@@ -351,7 +404,7 @@ export async function hybridSearch(
   const lexHits = lexicalSearch(db, query, candidates);
   const recentRows = db
     .prepare(
-      `SELECT id, created_at, source, source_id, title, text, tags, meta
+      `SELECT id, created_at, source, source_id, title, text, tags, meta, entity_id, process_id, session_id
        FROM items
        ORDER BY created_at DESC
        LIMIT ?`
@@ -368,6 +421,9 @@ export async function hybridSearch(
       text: r.text,
       tags: r.tags,
       meta: r.meta,
+      entity_id: r.entity_id,
+      process_id: r.process_id,
+      session_id: r.session_id,
     },
     lexicalScore: 0,
   }));
@@ -410,4 +466,164 @@ export async function hybridSearch(
 
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, topK);
+}
+
+// ============================================================================
+// Phase 1: Attribution & Session Filtering
+// ============================================================================
+
+export type FilterOpts = {
+  entity_id?: string | null;
+  process_id?: string | null;
+  session_id?: string | null;
+};
+
+/**
+ * Filter hybrid search results by attribution/session fields.
+ */
+export function filterResults(results: HybridResult[], opts: FilterOpts): HybridResult[] {
+  return results.filter(r => {
+    if (opts.entity_id !== undefined && r.item.entity_id !== opts.entity_id) return false;
+    if (opts.process_id !== undefined && r.item.process_id !== opts.process_id) return false;
+    if (opts.session_id !== undefined && r.item.session_id !== opts.session_id) return false;
+    return true;
+  });
+}
+
+/**
+ * Hybrid search with built-in filtering (more efficient than filter + hybridSearch).
+ */
+export async function hybridSearchFiltered(
+  db: Database.Database,
+  cfg: MemConfig,
+  query: string,
+  opts?: {
+    topK?: number;
+    candidates?: number;
+    semanticWeight?: number;
+    filter?: FilterOpts;
+  }
+): Promise<HybridResult[]> {
+  const results = await hybridSearch(db, cfg, query, opts);
+  if (!opts?.filter) return results;
+  return filterResults(results, opts.filter);
+}
+
+/**
+ * Get all memories for a specific entity (e.g., "what did Loïc tell me?").
+ */
+export function getMemoriesByEntity(
+  db: Database.Database,
+  entity_id: string,
+  limit = 50
+): MemItem[] {
+  const rows = db
+    .prepare(
+      `SELECT id, created_at, source, source_id, title, text, tags, meta, entity_id, process_id, session_id
+       FROM items
+       WHERE entity_id = ?
+       ORDER BY created_at DESC
+       LIMIT ?`
+    )
+    .all(entity_id, limit) as any[];
+
+  return rows.map(r => ({
+    id: r.id,
+    created_at: r.created_at,
+    source: r.source,
+    source_id: r.source_id,
+    title: r.title,
+    text: r.text,
+    tags: r.tags,
+    meta: r.meta,
+    entity_id: r.entity_id,
+    process_id: r.process_id,
+    session_id: r.session_id,
+  }));
+}
+
+/**
+ * Get all memories for a specific session/conversation.
+ */
+export function getMemoriesBySession(
+  db: Database.Database,
+  session_id: string,
+  limit = 100
+): MemItem[] {
+  const rows = db
+    .prepare(
+      `SELECT id, created_at, source, source_id, title, text, tags, meta, entity_id, process_id, session_id
+       FROM items
+       WHERE session_id = ?
+       ORDER BY created_at ASC
+       LIMIT ?`
+    )
+    .all(session_id, limit) as any[];
+
+  return rows.map(r => ({
+    id: r.id,
+    created_at: r.created_at,
+    source: r.source,
+    source_id: r.source_id,
+    title: r.title,
+    text: r.text,
+    tags: r.tags,
+    meta: r.meta,
+    entity_id: r.entity_id,
+    process_id: r.process_id,
+    session_id: r.session_id,
+  }));
+}
+
+/**
+ * Get all memories captured by a specific process/agent.
+ */
+export function getMemoriesByProcess(
+  db: Database.Database,
+  process_id: string,
+  limit = 100
+): MemItem[] {
+  const rows = db
+    .prepare(
+      `SELECT id, created_at, source, source_id, title, text, tags, meta, entity_id, process_id, session_id
+       FROM items
+       WHERE process_id = ?
+       ORDER BY created_at DESC
+       LIMIT ?`
+    )
+    .all(process_id, limit) as any[];
+
+  return rows.map(r => ({
+    id: r.id,
+    created_at: r.created_at,
+    source: r.source,
+    source_id: r.source_id,
+    title: r.title,
+    text: r.text,
+    tags: r.tags,
+    meta: r.meta,
+    entity_id: r.entity_id,
+    process_id: r.process_id,
+    session_id: r.session_id,
+  }));
+}
+
+/**
+ * List distinct entity_ids in the database.
+ */
+export function listEntities(db: Database.Database): string[] {
+  const rows = db
+    .prepare(`SELECT DISTINCT entity_id FROM items WHERE entity_id IS NOT NULL ORDER BY entity_id`)
+    .all() as { entity_id: string }[];
+  return rows.map(r => r.entity_id);
+}
+
+/**
+ * List distinct session_ids in the database.
+ */
+export function listSessions(db: Database.Database): string[] {
+  const rows = db
+    .prepare(`SELECT DISTINCT session_id FROM items WHERE session_id IS NOT NULL ORDER BY session_id`)
+    .all() as { session_id: string }[];
+  return rows.map(r => r.session_id);
 }

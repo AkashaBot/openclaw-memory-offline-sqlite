@@ -1,6 +1,6 @@
 {
   "name": "@akashabot/openclaw-mem",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "bin": {
     "openclaw-mem": "./dist/cli.js"
@@ -9,7 +9,7 @@
   "dependencies": {
     "commander": "^12.1.0",
     "uuid": "^10.0.0",
-    "@akashabot/openclaw-memory-offline-core": "0.1.1"
+    "@akashabot/openclaw-memory-offline-core": "*"
   },
   "devDependencies": {
     "@types/uuid": "^10.0.0"
