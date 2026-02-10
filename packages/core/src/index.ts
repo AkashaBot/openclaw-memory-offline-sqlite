@@ -33,6 +33,20 @@ export type MemItem = {
   session_id: string | null;  // Session/conversation grouping
 };
 
+// Phase 2: Structured Facts
+export type Fact = {
+  id: string;
+  created_at: number;
+  subject: string;      // Who/what the fact is about (e.g., "Loïc", "Akasha")
+  predicate: string;    // The relationship (e.g., "works_at", "prefers", "is")
+  object: string;       // The value (e.g., "Fasst", "short answers", "helpful")
+  confidence: number;   // 0-1, how confident we are in this fact
+  source_item_id: string | null;  // Link to the memory item it was extracted from
+  entity_id: string | null;       // Who said/wrote this fact
+};
+
+export type InsertFactInput = Omit<Fact, 'created_at'> & { created_at?: number };
+
 export type InsertItemInput = Omit<MemItem, 'created_at'> & { created_at?: number };
 
 export type LexicalResult = { item: MemItem; lexicalScore: number };
@@ -97,10 +111,28 @@ export function initSchema(db: Database.Database) {
       FOREIGN KEY(item_id) REFERENCES items(id)
     );
 
+    -- Phase 2: Structured Facts Table
+    CREATE TABLE IF NOT EXISTS facts (
+      id TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      subject TEXT NOT NULL,
+      predicate TEXT NOT NULL,
+      object TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0.5,
+      source_item_id TEXT,
+      entity_id TEXT,
+      FOREIGN KEY(source_item_id) REFERENCES items(id)
+    );
+
     -- Indexes for Phase 1: Attribution & Session filtering
     CREATE INDEX IF NOT EXISTS idx_items_entity_id ON items(entity_id);
     CREATE INDEX IF NOT EXISTS idx_items_process_id ON items(process_id);
     CREATE INDEX IF NOT EXISTS idx_items_session_id ON items(session_id);
+
+    -- Indexes for Phase 2: Facts queries
+    CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject);
+    CREATE INDEX IF NOT EXISTS idx_facts_predicate ON facts(predicate);
+    CREATE INDEX IF NOT EXISTS idx_facts_entity_id ON facts(entity_id);
   `);
 }
 
@@ -626,4 +658,260 @@ export function listSessions(db: Database.Database): string[] {
     .prepare(`SELECT DISTINCT session_id FROM items WHERE session_id IS NOT NULL ORDER BY session_id`)
     .all() as { session_id: string }[];
   return rows.map(r => r.session_id);
+}
+
+// ============================================================================
+// Phase 2: Structured Facts
+// ============================================================================
+
+/**
+ * Insert a new fact into the database.
+ */
+export function insertFact(db: Database.Database, input: InsertFactInput): Fact {
+  const stmt = db.prepare(`
+    INSERT INTO facts (id, created_at, subject, predicate, object, confidence, source_item_id, entity_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const created_at = input.created_at ?? Date.now();
+  stmt.run(
+    input.id,
+    created_at,
+    input.subject,
+    input.predicate,
+    input.object,
+    input.confidence,
+    input.source_item_id ?? null,
+    input.entity_id ?? null
+  );
+  return { ...input, created_at };
+}
+
+/**
+ * Get all facts about a specific subject.
+ */
+export function getFactsBySubject(db: Database.Database, subject: string, limit = 100): Fact[] {
+  const rows = db
+    .prepare(
+      `SELECT id, created_at, subject, predicate, object, confidence, source_item_id, entity_id
+       FROM facts
+       WHERE subject = ?
+       ORDER BY confidence DESC, created_at DESC
+       LIMIT ?`
+    )
+    .all(subject, limit) as any[];
+
+  return rows.map(r => ({
+    id: r.id,
+    created_at: r.created_at,
+    subject: r.subject,
+    predicate: r.predicate,
+    object: r.object,
+    confidence: r.confidence,
+    source_item_id: r.source_item_id,
+    entity_id: r.entity_id,
+  }));
+}
+
+/**
+ * Get all facts with a specific predicate.
+ */
+export function getFactsByPredicate(db: Database.Database, predicate: string, limit = 100): Fact[] {
+  const rows = db
+    .prepare(
+      `SELECT id, created_at, subject, predicate, object, confidence, source_item_id, entity_id
+       FROM facts
+       WHERE predicate = ?
+       ORDER BY confidence DESC, created_at DESC
+       LIMIT ?`
+    )
+    .all(predicate, limit) as any[];
+
+  return rows.map(r => ({
+    id: r.id,
+    created_at: r.created_at,
+    subject: r.subject,
+    predicate: r.predicate,
+    object: r.object,
+    confidence: r.confidence,
+    source_item_id: r.source_item_id,
+    entity_id: r.entity_id,
+  }));
+}
+
+/**
+ * Search facts by subject, predicate, or object (simple LIKE search).
+ */
+export function searchFacts(db: Database.Database, query: string, limit = 50): Fact[] {
+  const pattern = `%${query}%`;
+  const rows = db
+    .prepare(
+      `SELECT id, created_at, subject, predicate, object, confidence, source_item_id, entity_id
+       FROM facts
+       WHERE subject LIKE ? OR predicate LIKE ? OR object LIKE ?
+       ORDER BY confidence DESC, created_at DESC
+       LIMIT ?`
+    )
+    .all(pattern, pattern, pattern, limit) as any[];
+
+  return rows.map(r => ({
+    id: r.id,
+    created_at: r.created_at,
+    subject: r.subject,
+    predicate: r.predicate,
+    object: r.object,
+    confidence: r.confidence,
+    source_item_id: r.source_item_id,
+    entity_id: r.entity_id,
+  }));
+}
+
+/**
+ * Get all facts (optionally filtered by entity_id).
+ */
+export function getAllFacts(db: Database.Database, entityId?: string, limit = 100): Fact[] {
+  let rows: any[];
+  if (entityId) {
+    rows = db
+      .prepare(
+        `SELECT id, created_at, subject, predicate, object, confidence, source_item_id, entity_id
+         FROM facts
+         WHERE entity_id = ?
+         ORDER BY created_at DESC
+         LIMIT ?`
+      )
+      .all(entityId, limit) as any[];
+  } else {
+    rows = db
+      .prepare(
+        `SELECT id, created_at, subject, predicate, object, confidence, source_item_id, entity_id
+         FROM facts
+         ORDER BY created_at DESC
+         LIMIT ?`
+      )
+      .all(limit) as any[];
+  }
+
+  return rows.map(r => ({
+    id: r.id,
+    created_at: r.created_at,
+    subject: r.subject,
+    predicate: r.predicate,
+    object: r.object,
+    confidence: r.confidence,
+    source_item_id: r.source_item_id,
+    entity_id: r.entity_id,
+  }));
+}
+
+/**
+ * List distinct subjects in the facts table.
+ */
+export function listSubjects(db: Database.Database): string[] {
+  const rows = db
+    .prepare(`SELECT DISTINCT subject FROM facts ORDER BY subject`)
+    .all() as { subject: string }[];
+  return rows.map(r => r.subject);
+}
+
+/**
+ * List distinct predicates in the facts table.
+ */
+export function listPredicates(db: Database.Database): string[] {
+  const rows = db
+    .prepare(`SELECT DISTINCT predicate FROM facts ORDER BY predicate`)
+    .all() as { predicate: string }[];
+  return rows.map(r => r.predicate);
+}
+
+/**
+ * Delete a fact by ID.
+ */
+export function deleteFact(db: Database.Database, id: string): boolean {
+  const stmt = db.prepare('DELETE FROM facts WHERE id = ?');
+  const result = stmt.run(id);
+  return (result.changes ?? 0) > 0;
+}
+
+/**
+ * Delete all facts derived from a specific memory item.
+ */
+export function deleteFactsBySourceItem(db: Database.Database, sourceItemId: string): number {
+  const stmt = db.prepare('DELETE FROM facts WHERE source_item_id = ?');
+  const result = stmt.run(sourceItemId);
+  return result.changes ?? 0;
+}
+
+/**
+ * Simple pattern-based fact extraction.
+ * Looks for common patterns like "X works at Y", "X prefers Y", etc.
+ * Returns an array of potential facts (not inserted yet).
+ */
+export function extractFactsSimple(text: string, entityId?: string): Array<{
+  subject: string;
+  predicate: string;
+  object: string;
+  confidence: number;
+}> {
+  const facts: Array<{ subject: string; predicate: string; object: string; confidence: number }> = [];
+  const lower = text.toLowerCase();
+
+  // Pattern: "X works at Y" / "X travaille chez Y"
+  const workPatterns = [
+    /(\w+)\s+(?:works at|travaille chez|works for|work at)\s+([\w\s]+?)(?:\.|,|$)/gi,
+  ];
+  for (const pattern of workPatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      facts.push({
+        subject: match[1].trim(),
+        predicate: 'works_at',
+        object: match[2].trim(),
+        confidence: 0.7,
+      });
+    }
+  }
+
+  // Pattern: "X prefers Y" / "X préfère Y"
+  const preferPatterns = [
+    /(\w+)\s+(?:prefers?|préfère)\s+([\w\s]+?)(?:\.|,|$)/gi,
+  ];
+  for (const pattern of preferPatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      facts.push({
+        subject: match[1].trim(),
+        predicate: 'prefers',
+        object: match[2].trim(),
+        confidence: 0.8,
+      });
+    }
+  }
+
+  // Pattern: "X is Y" / "X est Y"
+  const isPatterns = [
+    /(\w+)\s+(?:is|est)\s+(?:a |an |un |une )?([\w\s]+?)(?:\.|,|$)/gi,
+  ];
+  for (const pattern of isPatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const subject = match[1].trim();
+      // Skip common false positives
+      if (['it', 'this', 'that', 'ce', 'il', 'elle', 'cette'].includes(subject.toLowerCase())) continue;
+      facts.push({
+        subject,
+        predicate: 'is',
+        object: match[2].trim(),
+        confidence: 0.6,
+      });
+    }
+  }
+
+  // Dedupe by subject+predicate+object
+  const seen = new Set<string>();
+  return facts.filter(f => {
+    const key = `${f.subject}|${f.predicate}|${f.object}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

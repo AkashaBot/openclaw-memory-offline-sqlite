@@ -17,6 +17,16 @@ const {
   getMemoriesByProcess,
   listEntities,
   listSessions,
+  // Phase 2: Facts
+  insertFact,
+  getFactsBySubject,
+  getFactsByPredicate,
+  searchFacts,
+  getAllFacts,
+  listSubjects,
+  listPredicates,
+  deleteFact,
+  extractFactsSimple,
 } = core;
 
 const program = new Command();
@@ -252,6 +262,123 @@ program
       const items = getMemoriesBySession(db, sessionId, limit);
       console.log(JSON.stringify({ ok: true, sessionId, count: items.length, items }));
     });
+  });
+
+// ============================================================================
+// Phase 2: Fact commands
+// ============================================================================
+
+program
+  .command('add-fact <subject> <predicate> <object>')
+  .description('Add a structured fact (subject, predicate, object)')
+  .option('--confidence <n>', 'Confidence level 0-1 (default 0.7)', '0.7')
+  .option('--entity-id <entityId>', 'Who said/wrote this fact')
+  .option('--source-item-id <itemId>', 'Source memory item ID')
+  .action((subject: string, predicate: string, object: string, cmdOpts) => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const id = uuidv4();
+      const confidence = Math.max(0, Math.min(1, Number(cmdOpts.confidence ?? 0.7)));
+      const fact = insertFact(db, {
+        id,
+        subject,
+        predicate,
+        object,
+        confidence,
+        source_item_id: cmdOpts.sourceItemId ?? null,
+        entity_id: cmdOpts.entityId ?? null,
+      });
+      console.log(JSON.stringify({ ok: true, fact }));
+    });
+  });
+
+program
+  .command('list-facts')
+  .description('List all facts (optionally filtered by entity)')
+  .option('--entity-id <entityId>', 'Filter by entity')
+  .option('--limit <n>', 'Max results (default 50)', '50')
+  .action((cmdOpts) => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const limit = Math.max(1, Math.min(500, Number(cmdOpts.limit ?? 50)));
+      const facts = getAllFacts(db, cmdOpts.entityId, limit);
+      console.log(JSON.stringify({ ok: true, count: facts.length, facts }));
+    });
+  });
+
+program
+  .command('get-facts-by-subject <subject>')
+  .description('Get all facts about a specific subject')
+  .option('--limit <n>', 'Max results (default 50)', '50')
+  .action((subject: string, cmdOpts) => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const limit = Math.max(1, Math.min(500, Number(cmdOpts.limit ?? 50)));
+      const facts = getFactsBySubject(db, subject, limit);
+      console.log(JSON.stringify({ ok: true, subject, count: facts.length, facts }));
+    });
+  });
+
+program
+  .command('search-facts <query>')
+  .description('Search facts by subject, predicate, or object')
+  .option('--limit <n>', 'Max results (default 50)', '50')
+  .action((query: string, cmdOpts) => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const limit = Math.max(1, Math.min(500, Number(cmdOpts.limit ?? 50)));
+      const facts = searchFacts(db, query, limit);
+      console.log(JSON.stringify({ ok: true, query, count: facts.length, facts }));
+    });
+  });
+
+program
+  .command('list-subjects')
+  .description('List all distinct subjects in the facts table')
+  .action(() => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const subjects = listSubjects(db);
+      console.log(JSON.stringify({ ok: true, subjects, count: subjects.length }));
+    });
+  });
+
+program
+  .command('list-predicates')
+  .description('List all distinct predicates in the facts table')
+  .action(() => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const predicates = listPredicates(db);
+      console.log(JSON.stringify({ ok: true, predicates, count: predicates.length }));
+    });
+  });
+
+program
+  .command('delete-fact <factId>')
+  .description('Delete a fact by ID')
+  .action((factId: string) => {
+    withDb((dbPath) => {
+      const db = openDb(dbPath);
+      initSchema(db);
+      const deleted = deleteFact(db, factId);
+      console.log(JSON.stringify({ ok: true, deleted, id: factId }));
+    });
+  });
+
+program
+  .command('extract-facts [text]')
+  .description('Extract potential facts from text (pattern-based, does not store)')
+  .action((text: string | undefined) => {
+    const input = text ?? fs.readFileSync(0, 'utf-8');
+    const facts = extractFactsSimple(input);
+    console.log(JSON.stringify({ ok: true, count: facts.length, facts }));
   });
 
 program.parse();
