@@ -2,7 +2,8 @@
   "files": [],
   "references": [
     { "path": "./packages/core" },
-    { "path": "./packages/cli" }
+    { "path": "./packages/cli" },
+    { "path": "./packages/mcp-server" }
   ],
   "compilerOptions": {
     "target": "ES2022",
