@@ -2,524 +2,699 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>OpenClaw Offline Memory (SQLite)</title>
+  <title>OpenClaw Offline Memory — SQLite + Knowledge Graph</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Offline-first long-term memory for AI agents. SQLite + FTS5 + Knowledge Graph + MCP Server." />
   <style>
     :root {
-      --bg: #050816;
-      --bg-alt: #0f172a;
-      --accent: #38bdf8;
-      --accent-soft: rgba(56, 189, 248, 0.15);
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --border: #1f2937;
-      --card-radius: 14px;
-      --shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.85);
+      --bg: #030712;
+      --bg-elevated: #0f172a;
+      --accent: #818cf8;
+      --accent-glow: rgba(129, 140, 248, 0.4);
+      --accent-secondary: #22d3ee;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --border: rgba(148, 163, 184, 0.15);
+      --card-bg: rgba(15, 23, 42, 0.7);
+      --success: #4ade80;
+      --warning: #fbbf24;
     }
 
     * {
       box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
 
     body {
-      margin: 0;
-      padding: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
-      background: radial-gradient(circle at top, #1e293b 0, #020617 55%, #000 100%);
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
       color: var(--text);
-      -webkit-font-smoothing: antialiased;
-    }
-
-    a {
-      color: var(--accent);
-      text-decoration: none;
-    }
-
-    a:hover {
-      text-decoration: underline;
-    }
-
-    .page {
+      line-height: 1.6;
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 40px 16px 64px;
     }
 
-    .shell {
-      width: 100%;
-      max-width: 960px;
+    /* Animated gradient background */
+    .bg-gradient {
+      position: fixed;
+      inset: 0;
+      background: 
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(129, 140, 248, 0.15), transparent),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(34, 211, 238, 0.1), transparent);
+      pointer-events: none;
+      z-index: 0;
     }
 
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Header */
     header {
+      padding: 24px 0;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 32px;
-      gap: 16px;
+      border-bottom: 1px solid var(--border);
     }
 
-    .brand {
+    .logo {
       display: flex;
       align-items: center;
       gap: 12px;
     }
 
-    .logo {
-      width: 40px;
-      height: 40px;
-      border-radius: 14px;
-      background: radial-gradient(circle at 30% 0%, #e5e7eb 0, #0f172a 55%, #020617 100%);
-      border: 1px solid rgba(148, 163, 184, 0.2);
+    .logo-icon {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-secondary) 100%);
+      border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.9);
-      position: relative;
-      overflow: hidden;
+      font-weight: 800;
+      font-size: 18px;
+      color: var(--bg);
+      box-shadow: 0 4px 24px var(--accent-glow);
     }
 
-    .logo::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(circle at 20% 0%, rgba(56,189,248,0.25), transparent 60%);
-      mix-blend-mode: screen;
-      opacity: 0.9;
-    }
-
-    .logo-mark {
-      position: relative;
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      color: #e5e7eb;
-    }
-
-    .brand-title {
+    .logo-text {
       display: flex;
       flex-direction: column;
-      gap: 2px;
     }
 
-    .brand-title span:first-child {
-      font-size: 15px;
+    .logo-text .tagline {
+      font-size: 11px;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
-      color: var(--muted);
+      letter-spacing: 0.15em;
+      color: var(--text-muted);
     }
 
-    .brand-title span:last-child {
+    .logo-text .name {
       font-size: 18px;
-      font-weight: 600;
+      font-weight: 700;
+      background: linear-gradient(90deg, var(--text) 0%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
 
-    .nav-links {
+    nav {
       display: flex;
-      gap: 16px;
-      font-size: 14px;
-      color: var(--muted);
-      flex-wrap: wrap;
-      justify-content: flex-end;
+      gap: 32px;
     }
 
-    .nav-links a {
-      padding: 4px 0;
-      border-bottom: 1px solid transparent;
-    }
-
-    .nav-links a:hover {
-      border-bottom-color: rgba(148, 163, 184, 0.6);
+    nav a {
+      color: var(--text-muted);
       text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
     }
 
-    main {
-      display: grid;
-      grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-      gap: 24px;
+    nav a:hover {
+      color: var(--accent);
     }
 
-    @media (max-width: 840px) {
-      main {
-        grid-template-columns: minmax(0, 1fr);
-      }
+    /* Hero */
+    .hero {
+      padding: 80px 0 60px;
+      text-align: center;
     }
 
-    .hero-card {
-      background: radial-gradient(circle at top left, rgba(56,189,248,0.18), transparent 45%),
-                  linear-gradient(to bottom right, #020617, #020617);
-      border-radius: 20px;
-      border: 1px solid rgba(148, 163, 184, 0.15);
-      padding: 22px 22px 20px;
-      box-shadow: var(--shadow-soft);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .hero-pill {
+    .hero-badge {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: rgba(15, 23, 42, 0.9);
-      border: 1px solid rgba(148, 163, 184, 0.35);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      color: var(--muted);
-      margin-bottom: 12px;
+      padding: 6px 16px;
+      background: rgba(129, 140, 248, 0.1);
+      border: 1px solid rgba(129, 140, 248, 0.3);
+      border-radius: 100px;
+      font-size: 13px;
+      color: var(--accent);
+      margin-bottom: 24px;
     }
 
-    .hero-pill-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: #22c55e;
-      box-shadow: 0 0 10px rgba(34,197,94,0.8);
+    .hero-badge .dot {
+      width: 8px;
+      height: 8px;
+      background: var(--success);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
     }
 
     h1 {
-      font-size: 28px;
-      line-height: 1.2;
-      margin: 0 0 10px;
+      font-size: clamp(36px, 6vw, 56px);
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 20px;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent) 50%, var(--accent-secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
 
     .hero-subtitle {
-      font-size: 14px;
-      color: var(--muted);
-      margin-bottom: 16px;
-      max-width: 38rem;
-    }
-
-    .hero-badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 18px;
-    }
-
-    .badge {
-      font-size: 11px;
-      padding: 4px 9px;
-      border-radius: 999px;
-      border: 1px solid rgba(148, 163, 184, 0.35);
-      background: rgba(15, 23, 42, 0.85);
-      color: var(--muted);
-    }
-
-    .badge-accent {
-      border-color: rgba(56,189,248, 0.8);
-      background: rgba(15, 23, 42, 0.96);
-      color: var(--accent);
+      font-size: 18px;
+      color: var(--text-muted);
+      max-width: 640px;
+      margin: 0 auto 32px;
     }
 
     .hero-actions {
       display: flex;
+      gap: 16px;
+      justify-content: center;
       flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 14px;
     }
 
-    .btn-primary,
-    .btn-ghost {
+    .btn {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      font-size: 13px;
-      padding: 7px 14px;
-      border-radius: 999px;
-      border: 1px solid transparent;
-      background: transparent;
-      color: inherit;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
       cursor: pointer;
+      border: none;
     }
 
     .btn-primary {
-      background: linear-gradient(to bottom right, #38bdf8, #0ea5e9);
-      color: #0b1120;
-      border-color: rgba(15, 23, 42, 0.85);
-      font-weight: 600;
-      box-shadow: 0 14px 30px rgba(8,47,73,0.9);
-      text-decoration: none;
+      background: linear-gradient(135deg, var(--accent) 0%, #6366f1 100%);
+      color: white;
+      box-shadow: 0 4px 24px var(--accent-glow);
     }
 
     .btn-primary:hover {
-      filter: brightness(1.05);
-      text-decoration: none;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px var(--accent-glow);
     }
 
-    .btn-ghost {
-      border-color: rgba(148, 163, 184, 0.4);
-      background: rgba(15, 23, 42, 0.8);
-      color: var(--muted);
-      text-decoration: none;
+    .btn-secondary {
+      background: var(--card-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
     }
 
-    .btn-ghost:hover {
-      border-color: rgba(148, 163, 184, 0.7);
-      text-decoration: none;
+    .btn-secondary:hover {
+      background: var(--bg-elevated);
+      border-color: var(--accent);
     }
 
-    .hero-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 16px;
-      font-size: 11px;
-      color: var(--muted);
-      border-top: 1px solid rgba(15, 23, 42, 0.9);
-      padding-top: 10px;
-      margin-top: 6px;
+    /* Features Grid */
+    .features {
+      padding: 60px 0;
     }
 
-    .hero-meta span {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      white-space: nowrap;
+    .section-title {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 48px;
     }
 
-    .hero-meta-dot {
-      width: 5px;
-      height: 5px;
-      border-radius: 999px;
-      background: rgba(148, 163, 184, 0.75);
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
     }
 
-    .side-card {
-      background: rgba(15, 23, 42, 0.88);
-      border-radius: 18px;
-      border: 1px solid rgba(148, 163, 184, 0.25);
-      padding: 16px 16px 14px;
-      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.9);
+    .feature-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      transition: all 0.3s;
     }
 
-    .side-title {
-      font-size: 13px;
-      font-weight: 600;
-      margin-bottom: 10px;
+    .feature-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
     }
 
-    .side-subtitle {
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 12px;
-    }
-
-    .checklist {
-      list-style: none;
-      padding: 0;
-      margin: 0 0 14px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-
-    .checklist li {
-      display: flex;
-      gap: 8px;
-      align-items: flex-start;
-      margin-bottom: 6px;
-    }
-
-    .check-icon {
-      width: 16px;
-      height: 16px;
-      border-radius: 999px;
-      border: 1px solid rgba(34,197,94,0.9);
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, rgba(129, 140, 248, 0.2) 0%, rgba(34, 211, 238, 0.2) 100%);
+      border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 11px;
-      color: #bbf7d0;
-      flex-shrink: 0;
+      font-size: 24px;
+      margin-bottom: 16px;
     }
 
-    .code-block {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: 11px;
-      background: #020617;
-      border-radius: 10px;
-      border: 1px solid rgba(15, 23, 42, 0.9);
-      padding: 10px 10px 9px;
-      color: #e5e7eb;
-      overflow-x: auto;
-      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.9);
+    .feature-card h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
     }
 
-    .code-block pre {
-      margin: 0;
-      white-space: pre;
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 14px;
     }
 
-    footer {
-      margin-top: 32px;
-      font-size: 11px;
-      color: var(--muted);
+    /* Stats */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 24px;
+      padding: 48px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      margin: 40px 0;
+    }
+
+    .stat {
       text-align: center;
     }
 
+    .stat-value {
+      font-size: 36px;
+      font-weight: 800;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-top: 4px;
+    }
+
+    /* Code Block */
+    .code-section {
+      padding: 60px 0;
+    }
+
+    .code-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+    }
+
+    @media (max-width: 768px) {
+      .code-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .code-block {
+      background: #0c1222;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .code-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: rgba(0, 0, 0, 0.3);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .code-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .code-dot.red { background: #ef4444; }
+    .code-dot.yellow { background: #eab308; }
+    .code-dot.green { background: #22c55e; }
+
+    .code-title {
+      margin-left: 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    pre {
+      padding: 20px;
+      overflow-x: auto;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    code {
+      color: #e2e8f0;
+    }
+
+    .code-comment { color: #64748b; }
+    .code-keyword { color: #c084fc; }
+    .code-string { color: #4ade80; }
+    .code-function { color: #60a5fa; }
+
+    /* Changelog */
+    .changelog {
+      padding: 60px 0;
+    }
+
+    .changelog-item {
+      display: flex;
+      gap: 24px;
+      padding: 24px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .changelog-version {
+      flex-shrink: 0;
+      width: 80px;
+    }
+
+    .changelog-version .version {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .changelog-version .date {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .changelog-content h4 {
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+
+    .changelog-content ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    .changelog-content li {
+      position: relative;
+      padding-left: 20px;
+      margin-bottom: 6px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .changelog-content li::before {
+      content: "→";
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+    }
+
+    .changelog-content li.new::before { content: "✓"; color: var(--success); }
+    .changelog-content li.improved::before { content: "↑"; color: var(--accent-secondary); }
+
+    /* Footer */
+    footer {
+      padding: 40px 0;
+      text-align: center;
+      border-top: 1px solid var(--border);
+      margin-top: 40px;
+    }
+
+    footer p {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
     footer a {
-      color: var(--muted);
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    footer a:hover {
       text-decoration: underline;
-      text-decoration-style: dotted;
+    }
+
+    /* Mobile nav */
+    @media (max-width: 640px) {
+      nav {
+        display: none;
+      }
+      
+      .hero {
+        padding: 40px 0;
+      }
+
+      h1 {
+        font-size: 32px;
+      }
+
+      .hero-subtitle {
+        font-size: 16px;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="page">
-    <div class="shell">
-      <header>
-        <div class="brand">
-          <div class="logo" aria-hidden="true">
-            <span class="logo-mark">OM</span>
-          </div>
-          <div class="brand-title">
-            <span>OpenClaw Memory</span>
-            <span>Offline SQLite + Hybrid Embeddings</span>
-          </div>
+  <div class="bg-gradient"></div>
+  
+  <div class="container">
+    <header>
+      <div class="logo">
+        <div class="logo-icon">OM</div>
+        <div class="logo-text">
+          <span class="tagline">OpenClaw Memory</span>
+          <span class="name">Offline SQLite</span>
         </div>
-        <nav class="nav-links">
-          <a href="#install">Install</a>
-          <a href="#config">Config</a>
-          <a href="#changelog">Changelog</a>
-          <a href="https://github.com/AkashaBot/openclaw-memory-offline-sqlite" target="_blank" rel="noreferrer">GitHub</a>
-        </nav>
-      </header>
+      </div>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="#changelog">Changelog</a>
+        <a href="https://github.com/AkashaBot/openclaw-memory-offline-sqlite" target="_blank">GitHub</a>
+      </nav>
+    </header>
 
-      <main>
-        <section class="hero-card">
-          <div class="hero-pill">
-            <span class="hero-pill-dot"></span>
-            <span>Offline‑first long‑term memory for OpenClaw</span>
+    <section class="hero">
+      <div class="hero-badge">
+        <span class="dot"></span>
+        <span>v0.5.0 — Knowledge Graph + MCP Server</span>
+      </div>
+      <h1>Your AI agent's<br />long-term memory</h1>
+      <p class="hero-subtitle">
+        Store, recall, and connect knowledge in a single SQLite file. FTS5 search, hybrid embeddings, facts extraction, and knowledge graph — all offline, zero external dependencies.
+      </p>
+      <div class="hero-actions">
+        <a href="#install" class="btn btn-primary">
+          <span>Get Started</span>
+          <span>→</span>
+        </a>
+        <a href="https://github.com/AkashaBot/openclaw-memory-offline-sqlite" target="_blank" class="btn btn-secondary">
+          <span>View on GitHub</span>
+        </a>
+      </div>
+    </section>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-value">50%</div>
+        <div class="stat-label">Storage saved with F16 quantization</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">350K</div>
+        <div class="stat-label">Cosine similarity ops/sec</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">15</div>
+        <div class="stat-label">MCP tools for Claude Desktop</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">0</div>
+        <div class="stat-label">External API calls required</div>
+      </div>
+    </div>
+
+    <section class="features" id="features">
+      <h2 class="section-title">Everything your agent remembers</h2>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">🧠</div>
+          <h3>Knowledge Graph</h3>
+          <p>Extract facts, link entities, and traverse relationships. Find paths between concepts your agent has learned.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔍</div>
+          <h3>Hybrid Search</h3>
+          <p>FTS5 lexical search + semantic embeddings with configurable reranking. Best of both worlds.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>F16 Quantization</h3>
+          <p>50% storage reduction with F32→F16 conversion. Embeddings stay fast and compact.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔌</div>
+          <h3>MCP Server</h3>
+          <p>15 tools for Claude Desktop integration. Store, recall, search facts, explore the graph.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📥</div>
+          <h3>Auto-Capture</h3>
+          <p>Plugin automatically stores conversations with attribution. Entity + session grouping.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🎯</div>
+          <h3>Fact Extraction</h3>
+          <p>Auto-extract structured facts from messages (confidence ≥ 0.6). Build knowledge hands-free.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="code-section" id="install">
+      <h2 class="section-title">Quick Start</h2>
+      <div class="code-grid">
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-dot red"></span>
+            <span class="code-dot yellow"></span>
+            <span class="code-dot green"></span>
+            <span class="code-title">Terminal — Install</span>
           </div>
-
-          <h1>Persistent memory, zero external calls.</h1>
-          <p class="hero-subtitle">
-            Store and recall your agent's long‑term knowledge in a single SQLite file, with FTS5 search and optional hybrid reranking using local or OpenAI embeddings.
-          </p>
-
-          <div class="hero-badges">
-            <span class="badge badge-accent">SQLite · FTS5</span>
-            <span class="badge">Hybrid search (lexical + embeddings)</span>
-            <span class="badge">Ollama / OpenAI providers</span>
-            <span class="badge">Auto‑recall & auto‑capture</span>
-          </div>
-
-          <div class="hero-actions">
-            <a class="btn-primary" href="#install">
-              <span>Get started</span>
-            </a>
-            <a class="btn-ghost" href="https://github.com/AkashaBot/openclaw-memory-offline-sqlite" target="_blank" rel="noreferrer">
-              <span>View on GitHub</span>
-            </a>
-          </div>
-
-          <div class="hero-meta">
-            <span><span class="hero-meta-dot"></span> npm: @akashabot/openclaw-memory-offline-core</span>
-            <span><span class="hero-meta-dot"></span> CLI: @akashabot/openclaw-mem</span>
-            <span><span class="hero-meta-dot"></span> Plugin: openclaw-memory-offline-sqlite-plugin</span>
-          </div>
-        </section>
-
-        <aside class="side-card" id="install">
-          <div class="side-title">Install &amp; smoke test</div>
-          <div class="side-subtitle">Set up the core library, CLI, and plugin in a few commands.</div>
-
-          <ul class="checklist">
-            <li>
-              <span class="check-icon">1</span>
-              <span>Install the core library and CLI on the machine running OpenClaw.</span>
-            </li>
-            <li>
-              <span class="check-icon">2</span>
-              <span>Clone the plugin repo and add it to your OpenClaw config.</span>
-            </li>
-            <li>
-              <span class="check-icon">3</span>
-              <span>Restart OpenClaw and verify memories are captured &amp; recalled.</span>
-            </li>
-          </ul>
-
-          <div class="code-block">
-            <pre><code># Core + CLI
+          <pre><code><span class="code-comment"># Core library</span>
 npm install @akashabot/openclaw-memory-offline-core
+
+<span class="code-comment"># CLI tool</span>
 npm install -g @akashabot/openclaw-mem
 
-# Plugin (example path)
-cd C:\Users\&lt;you&gt;\clawd\repos
- git clone https://github.com/AkashaBot/openclaw-memory-offline-sqlite-plugin.git
+<span class="code-comment"># MCP Server (optional, for Claude Desktop)</span>
+npm install -g @akashabot/openclaw-memory-mcp-server
 
-# Smoke test
-openclaw-mem --db memory.sqlite init
-openclaw-mem remember "First memory" --db memory.sqlite
-openclaw-mem search "First" --db memory.sqlite --hybrid</code></pre>
-          </div>
-        </aside>
-      </main>
-
-      <section id="config" style="margin-top:32px;">
-        <div class="side-card" style="margin-bottom:16px;">
-          <div class="side-title">Configure in OpenClaw</div>
-          <div class="side-subtitle">Drop‑in memory plugin for your agents.</div>
-          <div class="code-block">
-            <pre><code>{
-  "plugins": {
-    "load": {
-      "paths": [
-        "C:\\Users\\&lt;you&gt;\\clawd\\repos\\openclaw-memory-offline-sqlite-plugin"
-      ]
-    },
-    "slots": {
-      "memory": "memory-offline-sqlite"
-    },
-    "entries": {
-      "memory-offline-sqlite": {
-        "enabled": true,
-        "config": {
-          "dbPath": "C:\\Users\\&lt;you&gt;\\.openclaw\\memory\\offline.sqlite",
-          "autoRecall": true,
-          "autoCapture": true,
-          "mode": "hybrid",
-          "topK": 5,
-          "candidates": 50,
-          "semanticWeight": 0.7,
-
-          // Provider (ollama | openai)
-          "provider": "ollama",
-          "ollamaBaseUrl": "http://127.0.0.1:11434",
-          "embeddingModel": "bge-m3",
-          "ollamaTimeoutMs": 3000
-        }
-      }
-    }
-  }
-}</code></pre>
-          </div>
+<span class="code-comment"># Initialize and test</span>
+openclaw-mem init
+openclaw-mem remember "OpenClaw runs offline memory"
+openclaw-mem search "offline" --hybrid</code></pre>
         </div>
+        <div class="code-block">
+          <div class="code-header">
+            <span class="code-dot red"></span>
+            <span class="code-dot yellow"></span>
+            <span class="code-dot green"></span>
+            <span class="code-title">OpenClaw config.yaml</span>
+          </div>
+          <pre><code><span class="code-keyword">plugins</span>:
+  <span class="code-keyword">load</span>:
+    <span class="code-keyword">paths</span>:
+      - <span class="code-string">./plugins/memory-offline-sqlite</span>
+  <span class="code-keyword">slots</span>:
+    <span class="code-keyword">memory</span>: <span class="code-string">memory-offline-sqlite</span>
+  <span class="code-keyword">entries</span>:
+    <span class="code-keyword">memory-offline-sqlite</span>:
+      <span class="code-keyword">enabled</span>: <span class="code-string">true</span>
+      <span class="code-keyword">config</span>:
+        <span class="code-keyword">dbPath</span>: <span class="code-string">~/.openclaw/memory/offline.sqlite</span>
+        <span class="code-keyword">autoRecall</span>: <span class="code-string">true</span>
+        <span class="code-keyword">autoCapture</span>: <span class="code-string">true</span>
+        <span class="code-keyword">mode</span>: <span class="code-string">hybrid</span>
+        <span class="code-keyword">provider</span>: <span class="code-string">ollama</span>
+        <span class="code-keyword">embeddingModel</span>: <span class="code-string">bge-m3</span></code></pre>
+        </div>
+      </div>
+    </section>
 
-        <div class="side-card" id="changelog">
-          <div class="side-title">Changelog</div>
-          <div class="side-subtitle">Key changes and versions.</div>
-          <ul class="checklist" style="margin-bottom:0;">
-            <li>
-              <span class="check-icon">0.1</span>
-              <span>
-                Initial public release.
-                <br />• SQLite + FTS5 schema &amp; triggers
-                <br />• Hybrid search with embedding cache &amp; graceful fallback
-                <br />• Embeddings providers: Ollama &amp; OpenAI
-                <br />• OpenClaw plugin with auto‑recall &amp; auto‑capture hooks
-              </span>
-            </li>
+    <section class="changelog" id="changelog">
+      <h2 class="section-title">Changelog</h2>
+      
+      <div class="changelog-item">
+        <div class="changelog-version">
+          <div class="version">v0.5.0</div>
+          <div class="date">Latest</div>
+        </div>
+        <div class="changelog-content">
+          <h4>Knowledge Graph + Embedding Optimizations</h4>
+          <ul>
+            <li class="new">Knowledge Graph: getEntityGraph, findPaths, getRelatedEntities, exportGraphJson</li>
+            <li class="new">F16 quantization: 50% storage reduction for embeddings</li>
+            <li class="new">Cosine similarity benchmarking tools</li>
+            <li class="new">CLI: graph-stats, graph-entity, graph-path, graph-export commands</li>
           </ul>
         </div>
-      </section>
+      </div>
 
-      <footer>
-        Built by <a href="https://github.com/AkashaBot" target="_blank" rel="noreferrer">AkashaBot</a>. Project: <a href="https://github.com/AkashaBot/openclaw-memory-offline-sqlite" target="_blank" rel="noreferrer">openclaw-memory-offline-sqlite</a>.
-      </footer>
-    </div>
+      <div class="changelog-item">
+        <div class="changelog-version">
+          <div class="version">v0.4.0</div>
+          <div class="date">Feb 2025</div>
+        </div>
+        <div class="changelog-content">
+          <h4>MCP Server Release</h4>
+          <ul>
+            <li class="new">@akashabot/openclaw-memory-mcp-server package</li>
+            <li class="new">15 MCP tools for Claude Desktop integration</li>
+            <li class="new">Full graph + fact + memory tooling</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="changelog-item">
+        <div class="changelog-version">
+          <div class="version">v0.3.0</div>
+          <div class="date">Feb 2025</div>
+        </div>
+        <div class="changelog-content">
+          <h4>Facts Extraction</h4>
+          <ul>
+            <li class="new">Facts table with (subject, predicate, object, confidence)</li>
+            <li class="new">extractFactsSimple for auto-extraction</li>
+            <li class="new">CLI: add-fact, list-facts, search-facts, extract-facts</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="changelog-item">
+        <div class="changelog-version">
+          <div class="version">v0.2.0</div>
+          <div class="date">Feb 2025</div>
+        </div>
+        <div class="changelog-content">
+          <h4>Attribution & Session Grouping</h4>
+          <ul>
+            <li class="new">Entity ID + Session ID grouping</li>
+            <li class="improved">Source tracking and attribution</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="changelog-item">
+        <div class="changelog-version">
+          <div class="version">v0.1.0</div>
+          <div class="date">Initial</div>
+        </div>
+        <div class="changelog-content">
+          <h4>Core Release</h4>
+          <ul>
+            <li class="new">SQLite + FTS5 schema</li>
+            <li class="new">Hybrid search (lexical + embeddings)</li>
+            <li class="new">Ollama & OpenAI embedding providers</li>
+            <li class="new">OpenClaw plugin with auto-recall/auto-capture</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <p>
+        Built by <a href="https://github.com/AkashaBot" target="_blank">AkashaBot</a> · 
+        <a href="https://github.com/AkashaBot/openclaw-memory-offline-sqlite" target="_blank">GitHub</a> · 
+        <a href="https://www.npmjs.com/package/@akashabot/openclaw-memory-offline-core" target="_blank">npm</a>
+      </p>
+    </footer>
   </div>
 </body>
 </html>
