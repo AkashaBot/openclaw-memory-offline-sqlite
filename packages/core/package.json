@@ -2,9 +2,17 @@
   "name": "@akashabot/openclaw-memory-offline-core",
   "version": "0.2.0",
   "type": "module",
+  "description": "Core library for OpenClaw Offline Memory (SQLite FTS + optional embeddings)",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": ["dist"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AkashaBot/openclaw-memory-offline-sqlite.git",
+    "directory": "packages/core"
+  },
+  "author": "AkashaBot",
+  "license": "MIT",
   "dependencies": {
     "better-sqlite3": "^11.8.0",
     "node-fetch": "^3.3.2"

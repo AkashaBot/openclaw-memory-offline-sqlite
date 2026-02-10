@@ -2,14 +2,22 @@
   "name": "@akashabot/openclaw-mem",
   "version": "0.2.0",
   "type": "module",
+  "description": "CLI for OpenClaw Offline Memory (SQLite FTS + optional embeddings)",
   "bin": {
     "openclaw-mem": "./dist/cli.js"
   },
   "main": "./dist/cli.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AkashaBot/openclaw-memory-offline-sqlite.git",
+    "directory": "packages/cli"
+  },
+  "author": "AkashaBot",
+  "license": "MIT",
   "dependencies": {
     "commander": "^12.1.0",
     "uuid": "^10.0.0",
-    "@akashabot/openclaw-memory-offline-core": "*"
+    "@akashabot/openclaw-memory-offline-core": "^0.2.0"
   },
   "devDependencies": {
     "@types/uuid": "^10.0.0"
