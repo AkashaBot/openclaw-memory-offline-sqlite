@@ -21,6 +21,7 @@ This page regroupe:
 - Un CLI: `@akashabot/openclaw-mem`
   - `init`, `remember`, `search`, etc.
 - Un plugin OpenClaw dédié (repo: `openclaw-memory-offline-sqlite-plugin`)
+  - **Relie OpenClaw au core** (slots mémoire + outils `memory_*`)
   - Auto‑recall: injection de souvenirs pertinents dans le prompt (`<relevant-memories>`)
   - Auto‑capture: enregistrement des messages user/assistant avec déduplication et filtres anti‑bruit
 
@@ -30,13 +31,14 @@ Objectif: offrir une mémoire long terme **offline**, contrôlable, avec perform
 
 ## 2. Installation
 
-### 2.1. Core + CLI
+### 2.1. Core + CLI (+ MCP server)
 
 Sur la machine qui héberge OpenClaw:
 
 ```bash
 npm install @akashabot/openclaw-memory-offline-core
 npm install -g @akashabot/openclaw-mem
+npm install -g @akashabot/openclaw-memory-mcp-server
 ```
 
 ### 2.2. Plugin OpenClaw

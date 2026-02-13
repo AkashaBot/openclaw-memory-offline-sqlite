@@ -25,6 +25,26 @@ Default embedding model: `bge-m3` (Ollama).
 
 ## Install / build
 
+### Packages (npm)
+```bash
+# Core library
+npm install @akashabot/openclaw-memory-offline-core
+
+# CLI tool
+npm install -g @akashabot/openclaw-mem
+
+# MCP Server (optional)
+npm install -g @akashabot/openclaw-memory-mcp-server
+```
+
+### Use with OpenClaw (plugin)
+To wire this core into OpenClaw memory, install the plugin:
+https://github.com/AkashaBot/openclaw-memory-offline-sqlite-plugin
+
+The plugin exposes the `memory_*` tools and handles auto‑recall / auto‑capture.
+
+---
+
 This repo is a small TS monorepo (`packages/core`, `packages/cli`, `packages/skill`).
 
 Build:
