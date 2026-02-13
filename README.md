@@ -1,18 +1,31 @@
-# OpenClaw Offline Memory (SQLite FTS + Ollama embeddings)
+# OpenClaw Offline Memory (SQLite FTS + Hybrid Embeddings)
 
-Offline-first memory store + search for OpenClaw.
+Offline‑first, privacy‑preserving memory store for OpenClaw.
 
-Features:
-- SQLite single-file DB (WAL)
+## ✅ What’s new (v0.5.0)
+- **Knowledge Graph** (entities + relations) stored locally
+- **Facts & attribution** (who/when) for reliable long‑term memory
+- **Hybrid search** (FTS5 + embeddings re‑rank)
+- **F16 quantization** for lighter embedding storage
+- **MCP server support** (connect from Claude Desktop / Cursor / Windsurf)
+
+> The core remains a **single SQLite file** with **zero external services** required.
+
+## Features
+- SQLite single‑file DB (WAL)
 - FTS5 lexical search (BM25)
-- Optional semantic rerank using local embeddings via Ollama (`POST /v1/embeddings`)
-- **Phase 1 (v0.2.0): Attribution & Session Grouping**
+- Hybrid semantic re‑rank (dense + sparse embeddings)
+- Local embeddings (Ollama) or OpenAI embeddings
+- Knowledge Graph + facts extraction
+- Automatic attribution (source + timestamp)
 
-Default embedding model: `bge-m3`.
+Default embedding model: `bge-m3` (Ollama).
+
+---
 
 ## Install / build
 
-This repo is a small TS monorepo (`packages/core`, `packages/cli`).
+This repo is a small TS monorepo (`packages/core`, `packages/cli`, `packages/skill`).
 
 Build:
 ```bash
@@ -46,7 +59,7 @@ openclaw-mem remember "Met Alice at the cafe, she likes espresso" \
   --title "Coffee chat" \
   --tags "people,alice"
 
-# With attribution (Phase 1)
+# With attribution
 openclaw-mem remember "Loïc prefers autonomous agent behavior" \
   --db memory.sqlite \
   --entity-id "loic" \
@@ -59,16 +72,16 @@ openclaw-mem remember "Loïc prefers autonomous agent behavior" \
 openclaw-mem search "espresso" --db memory.sqlite --limit 5
 ```
 
-### Search (hybrid rerank)
-Hybrid mode runs a normal FTS search to get candidates, then asks Ollama for embeddings and reranks those candidates by cosine similarity (with a small lexical tie-break).
+### Search (hybrid re‑rank)
+Hybrid mode runs a normal FTS search to get candidates, then asks the embeddings provider and re‑ranks by cosine similarity (with a lexical tie‑break).
 
-If Ollama is unavailable (down, timeout, model missing), it **automatically falls back** to lexical-only results.
+If the embeddings provider is unavailable (down, timeout, model missing), it **automatically falls back** to lexical‑only results.
 
 ```bash
 openclaw-mem search "what did Alice drink" --db memory.sqlite --hybrid --limit 5
 ```
 
-### Search with filter (Phase 1)
+### Search with filters
 Filter memories by entity, process, or session:
 ```bash
 # What did Loïc tell me?
@@ -87,8 +100,7 @@ openclaw-mem search "..." --hybrid \
 ```
 
 ### OpenAI configuration
-
-The core can also use OpenAI's `/v1/embeddings` endpoint:
+The core can also use OpenAI’s `/v1/embeddings` endpoint:
 
 ```bash
 OPENAI_API_KEY=sk-... openclaw-mem search "..." --hybrid \
@@ -100,6 +112,8 @@ OPENAI_API_KEY=sk-... openclaw-mem search "..." --hybrid \
 If `provider` is omitted, the core defaults to Ollama + `bge-m3` for backwards compatibility.
 
 See `docs/embeddings.md`.
+
+---
 
 ## API (packages/core)
 
@@ -124,8 +138,7 @@ addItem(db, {
 const results = await hybridSearch(db, config, 'preferences', { topK: 5 });
 ```
 
-### Attribution & Session APIs (Phase 1)
-
+### Filtered APIs
 ```typescript
 import {
   getMemoriesByEntity,
@@ -152,17 +165,12 @@ const filtered = await hybridSearchFiltered(db, config, 'preferences', {
 const entities = listEntities(db);  // ['loic', 'system', 'akasha', ...]
 ```
 
+---
+
 ## Status
 
-Working MVP:
-- `remember` inserts items into `items` + keeps FTS in sync via triggers.
-- `search` supports `--hybrid` semantic reranking, storing Float32 vectors in the `embeddings` table.
-- Embeddings provider is pluggable (Ollama or OpenAI) behind a common config.
-
-**Phase 1 (v0.2.0):**
-- ✅ Attribution: `entity_id`, `process_id` for source tracking
-- ✅ Session grouping: `session_id` for conversation context
-- ✅ Filtered search: `hybridSearchFiltered()`, `getMemoriesByEntity()`, etc.
-- ✅ Automatic migration for existing databases
-
-See [ROADMAP](docs/roadmap.md) for planned features.
+Stable:
+- `remember` inserts items into `items` + keeps FTS in sync via triggers
+- `search` supports `--hybrid` semantic re‑ranking
+- Pluggable embeddings (Ollama / OpenAI)
+- Knowledge Graph + facts + attribution (offline)
