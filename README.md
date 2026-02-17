@@ -1,51 +1,20 @@
-# OpenClaw Offline Memory (SQLite FTS + Hybrid Embeddings)
+# OpenClaw Offline Memory (SQLite FTS + Ollama embeddings)
 
-Offline‑first, privacy‑preserving memory store for OpenClaw.
+Offline-first memory store + search for OpenClaw.
 
-## ✅ What’s new (v0.5.0)
-- **Knowledge Graph** (entities + relations) stored locally
-- **Facts & attribution** (who/when) for reliable long‑term memory
-- **Hybrid search** (FTS5 + embeddings re‑rank)
-- **F16 quantization** for lighter embedding storage
-- **MCP server support** (connect from Claude Desktop / Cursor / Windsurf)
-
-> The core remains a **single SQLite file** with **zero external services** required.
-
-## Features
-- SQLite single‑file DB (WAL)
+Features:
+- SQLite single-file DB (WAL)
 - FTS5 lexical search (BM25)
-- Hybrid semantic re‑rank (dense + sparse embeddings)
-- Local embeddings (Ollama) or OpenAI embeddings
-- Knowledge Graph + facts extraction
-- Automatic attribution (source + timestamp)
+- Optional semantic rerank using local embeddings via Ollama (`POST /v1/embeddings`)
+- **Phase 1 (v0.2.0): Attribution & Session Grouping**
+- **Phase 2 (v0.3.0): Facts extraction**
+- **Phase 3 (v0.5.0): Knowledge Graph**
 
-Default embedding model: `bge-m3` (Ollama).
-
----
+Default embedding model: `bge-m3`.
 
 ## Install / build
 
-### Packages (npm)
-```bash
-# Core library
-npm install @akashabot/openclaw-memory-offline-core
-
-# CLI tool
-npm install -g @akashabot/openclaw-mem
-
-# MCP Server (optional)
-npm install -g @akashabot/openclaw-memory-mcp-server
-```
-
-### Use with OpenClaw (plugin)
-To wire this core into OpenClaw memory, install the plugin:
-https://github.com/AkashaBot/openclaw-memory-offline-sqlite-plugin
-
-The plugin exposes the `memory_*` tools and handles auto‑recall / auto‑capture.
-
----
-
-This repo is a small TS monorepo (`packages/core`, `packages/cli`, `packages/skill`).
+This repo is a small TS monorepo (`packages/core`, `packages/cli`).
 
 Build:
 ```bash
@@ -79,7 +48,7 @@ openclaw-mem remember "Met Alice at the cafe, she likes espresso" \
   --title "Coffee chat" \
   --tags "people,alice"
 
-# With attribution
+# With attribution (Phase 1)
 openclaw-mem remember "Loïc prefers autonomous agent behavior" \
   --db memory.sqlite \
   --entity-id "loic" \
@@ -92,16 +61,16 @@ openclaw-mem remember "Loïc prefers autonomous agent behavior" \
 openclaw-mem search "espresso" --db memory.sqlite --limit 5
 ```
 
-### Search (hybrid re‑rank)
-Hybrid mode runs a normal FTS search to get candidates, then asks the embeddings provider and re‑ranks by cosine similarity (with a lexical tie‑break).
+### Search (hybrid rerank)
+Hybrid mode runs a normal FTS search to get candidates, then asks Ollama for embeddings and reranks those candidates by cosine similarity (with a small lexical tie-break).
 
-If the embeddings provider is unavailable (down, timeout, model missing), it **automatically falls back** to lexical‑only results.
+If Ollama is unavailable (down, timeout, model missing), it **automatically falls back** to lexical-only results.
 
 ```bash
 openclaw-mem search "what did Alice drink" --db memory.sqlite --hybrid --limit 5
 ```
 
-### Search with filters
+### Search with filter (Phase 1)
 Filter memories by entity, process, or session:
 ```bash
 # What did Loïc tell me?
@@ -120,7 +89,8 @@ openclaw-mem search "..." --hybrid \
 ```
 
 ### OpenAI configuration
-The core can also use OpenAI’s `/v1/embeddings` endpoint:
+
+The core can also use OpenAI's `/v1/embeddings` endpoint:
 
 ```bash
 OPENAI_API_KEY=sk-... openclaw-mem search "..." --hybrid \
@@ -132,8 +102,6 @@ OPENAI_API_KEY=sk-... openclaw-mem search "..." --hybrid \
 If `provider` is omitted, the core defaults to Ollama + `bge-m3` for backwards compatibility.
 
 See `docs/embeddings.md`.
-
----
 
 ## API (packages/core)
 
@@ -158,7 +126,8 @@ addItem(db, {
 const results = await hybridSearch(db, config, 'preferences', { topK: 5 });
 ```
 
-### Filtered APIs
+### Attribution & Session APIs (Phase 1)
+
 ```typescript
 import {
   getMemoriesByEntity,
@@ -185,12 +154,73 @@ const filtered = await hybridSearchFiltered(db, config, 'preferences', {
 const entities = listEntities(db);  // ['loic', 'system', 'akasha', ...]
 ```
 
----
+### Facts Extraction (Phase 2)
+
+Auto-extract factual statements from captured memories:
+
+```typescript
+import { extractFactsSimple, searchFacts, getFactsBySubject } from '@akashabot/openclaw-memory-offline-core';
+
+// Extract facts from a text (simple sentence splitting)
+const facts = extractFactsSimple("Loïc works at Fasst. He leads the Open Insurance Platform team.");
+// Returns: [{ subject: 'Loïc', predicate: 'works at', object: 'Fasst' }, ...]
+
+// Search facts
+const results = searchFacts(db, 'Fasst');
+
+// Get all facts about a subject
+const loicFacts = getFactsBySubject(db, 'Loïc');
+```
+
+Facts are stored in a separate `facts` table with full-text search, enabling targeted queries like "what does X do?" without scanning all memories.
+
+### Knowledge Graph (Phase 3)
+
+Entity relationships and graph traversal:
+
+```typescript
+import { getEntityGraph, getRelatedEntities, getGraphStats } from '@akashabot/openclaw-memory-offline-core';
+
+// Get full graph (entities + connections)
+const graph = getEntityGraph(db);
+// Returns: { nodes: [{ id, type, label }], edges: [{ source, target, label }] }
+
+// Get entities related to a specific entity
+const related = getRelatedEntities(db, 'Loïc');
+// Returns: [{ entity: 'Fasst', relation: 'works_at', count: 3 }, ...]
+
+// Get graph statistics
+const stats = getGraphStats(db);
+// Returns: { nodeCount, edgeCount, relationTypes: [...] }
+```
+
+The KG is built automatically from:
+- Extracted facts (subject → predicate → object)
+- Attributed memories (entities linked via `entity_id`)
+
+This enables questions like "who does Loïc work with?" or "what projects involve Fasst?"
 
 ## Status
 
-Stable:
-- `remember` inserts items into `items` + keeps FTS in sync via triggers
-- `search` supports `--hybrid` semantic re‑ranking
-- Pluggable embeddings (Ollama / OpenAI)
-- Knowledge Graph + facts + attribution (offline)
+Working MVP:
+- `remember` inserts items into `items` + keeps FTS in sync via triggers.
+- `search` supports `--hybrid` semantic reranking, storing Float32 vectors in the `embeddings` table.
+- Embeddings provider is pluggable (Ollama or OpenAI) behind a common config.
+
+**Phase 1 (v0.2.0):**
+- ✅ Attribution: `entity_id`, `process_id` for source tracking
+- ✅ Session grouping: `session_id` for conversation context
+- ✅ Filtered search: `hybridSearchFiltered()`, `getMemoriesByEntity()`, etc.
+- ✅ Automatic migration for existing databases
+
+**Phase 2 (v0.3.0):**
+- ✅ Facts extraction: `extractFactsSimple()`, `searchFacts()`, `getFactsBySubject()`
+- ✅ Facts stored in dedicated table with FTS5
+- ✅ Facts auto-extracted from captured memories (plugin hook)
+
+**Phase 3 (v0.5.0):**
+- ✅ Knowledge Graph: entity nodes + edges from facts + attribution
+- ✅ Graph traversal: `getRelatedEntities()`, `getEntityGraph()`
+- ✅ Graph stats: node/edge counts, relation types
+
+See [ROADMAP](docs/roadmap.md) for planned features.
