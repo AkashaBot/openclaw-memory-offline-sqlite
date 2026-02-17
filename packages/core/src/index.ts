@@ -33,6 +33,36 @@ export type MemItem = {
   session_id: string | null;  // Session/conversation grouping
 };
 
+// Short-Term Memory (STM)
+export type StmItem = {
+  id: string;
+  created_at: number;
+  expires_at: number | null;
+  importance: number; // 0..1
+  source: string | null;
+  source_id: string | null;
+  title: string | null;
+  text: string;
+  tags: string | null;
+  meta: string | null;
+  entity_id: string | null;
+  process_id: string | null;
+  session_id: string | null;
+};
+
+export type InsertStmInput = Omit<StmItem, 'created_at' | 'expires_at' | 'importance'> & {
+  created_at?: number;
+  expires_at?: number | null;
+  ttlMs?: number;
+  importance?: number;
+};
+
+export type StmResult = {
+  item: StmItem | MemItem;
+  lexicalScore: number;
+  scope: 'stm' | 'ltm';
+};
+
 // Phase 2: Structured Facts
 export type Fact = {
   id: string;
@@ -102,6 +132,52 @@ export function initSchema(db: Database.Database) {
       VALUES (new.rowid, new.title, new.text, new.tags);
     END;
 
+    -- Short-Term Memory (STM)
+    CREATE TABLE IF NOT EXISTS stm_items (
+      id TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      importance REAL NOT NULL DEFAULT 0.5,
+      source TEXT,
+      source_id TEXT,
+      title TEXT,
+      text TEXT NOT NULL,
+      tags TEXT,
+      meta TEXT,
+      entity_id TEXT,
+      process_id TEXT,
+      session_id TEXT
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS stm_items_fts USING fts5(
+      title,
+      text,
+      tags,
+      content='stm_items',
+      content_rowid='rowid'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS stm_items_ai AFTER INSERT ON stm_items BEGIN
+      INSERT INTO stm_items_fts(rowid, title, text, tags)
+      VALUES (new.rowid, new.title, new.text, new.tags);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS stm_items_ad AFTER DELETE ON stm_items BEGIN
+      INSERT INTO stm_items_fts(stm_items_fts, rowid, title, text, tags)
+      VALUES('delete', old.rowid, old.title, old.text, old.tags);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS stm_items_au AFTER UPDATE ON stm_items BEGIN
+      INSERT INTO stm_items_fts(stm_items_fts, rowid, title, text, tags)
+      VALUES('delete', old.rowid, old.title, old.text, old.tags);
+      INSERT INTO stm_items_fts(rowid, title, text, tags)
+      VALUES (new.rowid, new.title, new.text, new.tags);
+    END;
+
+    CREATE INDEX IF NOT EXISTS idx_stm_expires_at ON stm_items(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_stm_entity_id ON stm_items(entity_id);
+    CREATE INDEX IF NOT EXISTS idx_stm_session_id ON stm_items(session_id);
+
     CREATE TABLE IF NOT EXISTS embeddings (
       item_id TEXT PRIMARY KEY,
       model TEXT NOT NULL,
@@ -161,6 +237,54 @@ export function runMigrations(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_items_entity_id ON items(entity_id);
     CREATE INDEX IF NOT EXISTS idx_items_process_id ON items(process_id);
     CREATE INDEX IF NOT EXISTS idx_items_session_id ON items(session_id);
+  `);
+
+  // STM tables/triggers/indexes (safe to repeat)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stm_items (
+      id TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      importance REAL NOT NULL DEFAULT 0.5,
+      source TEXT,
+      source_id TEXT,
+      title TEXT,
+      text TEXT NOT NULL,
+      tags TEXT,
+      meta TEXT,
+      entity_id TEXT,
+      process_id TEXT,
+      session_id TEXT
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS stm_items_fts USING fts5(
+      title,
+      text,
+      tags,
+      content='stm_items',
+      content_rowid='rowid'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS stm_items_ai AFTER INSERT ON stm_items BEGIN
+      INSERT INTO stm_items_fts(rowid, title, text, tags)
+      VALUES (new.rowid, new.title, new.text, new.tags);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS stm_items_ad AFTER DELETE ON stm_items BEGIN
+      INSERT INTO stm_items_fts(stm_items_fts, rowid, title, text, tags)
+      VALUES('delete', old.rowid, old.title, old.text, old.tags);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS stm_items_au AFTER UPDATE ON stm_items BEGIN
+      INSERT INTO stm_items_fts(stm_items_fts, rowid, title, text, tags)
+      VALUES('delete', old.rowid, old.title, old.text, old.tags);
+      INSERT INTO stm_items_fts(rowid, title, text, tags)
+      VALUES (new.rowid, new.title, new.text, new.tags);
+    END;
+
+    CREATE INDEX IF NOT EXISTS idx_stm_expires_at ON stm_items(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_stm_entity_id ON stm_items(entity_id);
+    CREATE INDEX IF NOT EXISTS idx_stm_session_id ON stm_items(session_id);
   `);
 }
 
@@ -235,6 +359,174 @@ export function insertItem(db: Database.Database, input: InsertItemInput): MemIt
     process_id: input.process_id ?? null,
     session_id: input.session_id ?? null,
   };
+}
+
+// =============================
+// STM (Short-Term Memory)
+// =============================
+export function stm_insert(db: Database.Database, input: InsertStmInput): StmItem {
+  const now = input.created_at ?? Date.now();
+  const expires_at = input.expires_at ?? (input.ttlMs ? now + input.ttlMs : null);
+  const importance = input.importance ?? 0.5;
+
+  const stmt = db.prepare(`
+    INSERT INTO stm_items (id, created_at, expires_at, importance, source, source_id, title, text, tags, meta, entity_id, process_id, session_id)
+    VALUES (@id, @created_at, @expires_at, @importance, @source, @source_id, @title, @text, @tags, @meta, @entity_id, @process_id, @session_id)
+  `);
+
+  stmt.run({
+    id: input.id,
+    created_at: now,
+    expires_at,
+    importance,
+    source: input.source ?? null,
+    source_id: input.source_id ?? null,
+    title: input.title ?? null,
+    text: input.text,
+    tags: input.tags ?? null,
+    meta: input.meta ?? null,
+    entity_id: input.entity_id ?? null,
+    process_id: input.process_id ?? null,
+    session_id: input.session_id ?? null,
+  });
+
+  return {
+    id: input.id,
+    created_at: now,
+    expires_at,
+    importance,
+    source: input.source ?? null,
+    source_id: input.source_id ?? null,
+    title: input.title ?? null,
+    text: input.text,
+    tags: input.tags ?? null,
+    meta: input.meta ?? null,
+    entity_id: input.entity_id ?? null,
+    process_id: input.process_id ?? null,
+    session_id: input.session_id ?? null,
+  };
+}
+
+export function stm_maintain(
+  db: Database.Database,
+  options?: { now?: number; maxItems?: number }
+): { deletedExpired: number; deletedOverflow: number; total: number } {
+  const now = options?.now ?? Date.now();
+
+  const expired = db
+    .prepare(`DELETE FROM stm_items WHERE expires_at IS NOT NULL AND expires_at <= ?`)
+    .run(now).changes;
+
+  let overflow = 0;
+  if (options?.maxItems && options.maxItems > 0) {
+    const totalRow = db.prepare(`SELECT COUNT(*) as count FROM stm_items`).get() as { count: number };
+    const total = totalRow?.count ?? 0;
+    if (total > options.maxItems) {
+      const toDelete = total - options.maxItems;
+      overflow = db
+        .prepare(
+          `DELETE FROM stm_items WHERE id IN (
+             SELECT id FROM stm_items
+             ORDER BY importance ASC, created_at ASC
+             LIMIT ?
+           )`
+        )
+        .run(toDelete).changes;
+    }
+  }
+
+  const totalRow = db.prepare(`SELECT COUNT(*) as count FROM stm_items`).get() as { count: number };
+  return { deletedExpired: expired, deletedOverflow: overflow, total: totalRow?.count ?? 0 };
+}
+
+export function stmLexicalSearch(
+  db: Database.Database,
+  query: string,
+  limit = 10,
+  now = Date.now()
+): Array<{ item: StmItem; lexicalScore: number }> {
+  const rows = db
+    .prepare(
+      `
+      SELECT
+        s.id,
+        s.created_at,
+        s.expires_at,
+        s.importance,
+        s.source,
+        s.source_id,
+        s.title,
+        s.text,
+        s.tags,
+        s.meta,
+        s.entity_id,
+        s.process_id,
+        s.session_id,
+        bm25(stm_items_fts) AS bm25
+      FROM stm_items_fts
+      JOIN stm_items s ON s.rowid = stm_items_fts.rowid
+      WHERE stm_items_fts MATCH ?
+        AND (s.expires_at IS NULL OR s.expires_at > ?)
+      ORDER BY bm25 ASC
+      LIMIT ?
+    `
+    )
+    .all(query, now, limit) as any[];
+
+  return rows.map((r) => ({
+    item: {
+      id: r.id,
+      created_at: r.created_at,
+      expires_at: r.expires_at,
+      importance: r.importance,
+      source: r.source,
+      source_id: r.source_id,
+      title: r.title,
+      text: r.text,
+      tags: r.tags,
+      meta: r.meta,
+      entity_id: r.entity_id,
+      process_id: r.process_id,
+      session_id: r.session_id,
+    },
+    lexicalScore: -Number(r.bm25),
+  }));
+}
+
+export function stm_recall(
+  db: Database.Database,
+  query: string,
+  options?: {
+    limit?: number;
+    includeLtm?: boolean;
+    stmLimit?: number;
+    ltmLimit?: number;
+    now?: number;
+  }
+): StmResult[] {
+  const escapedQuery = escapeFts5Query(query);
+  const limit = options?.limit ?? 10;
+  const now = options?.now ?? Date.now();
+  const stmLimit = options?.stmLimit ?? limit;
+  const ltmLimit = options?.ltmLimit ?? limit;
+
+  const stm = stmLexicalSearch(db, escapedQuery, stmLimit, now).map((r) => ({
+    item: r.item,
+    lexicalScore: r.lexicalScore,
+    scope: 'stm' as const,
+  }));
+
+  const ltm = options?.includeLtm === false
+    ? []
+    : lexicalSearch(db, escapedQuery, ltmLimit).map((r) => ({
+        item: r.item,
+        lexicalScore: r.lexicalScore,
+        scope: 'ltm' as const,
+      }));
+
+  return [...stm, ...ltm]
+    .sort((a, b) => b.lexicalScore - a.lexicalScore)
+    .slice(0, limit);
 }
 
 export function lexicalSearch(db: Database.Database, query: string, limit = 10): LexicalResult[] {
