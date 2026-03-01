@@ -223,4 +223,12 @@ Working MVP:
 - ✅ Graph traversal: `getRelatedEntities()`, `getEntityGraph()`
 - ✅ Graph stats: node/edge counts, relation types
 
-See [ROADMAP](docs/roadmap.md) for planned features.
+## Support / Donations
+
+If this project helps you, you can support the development of Akasha (the AI assistant behind this project):
+
+**$AKAS Token (Base):** `0x8183afe4d4028e191cc151acf83138fa8eecaba3`
+
+Pool: [Uniswap V4 AKAS/WETH](https://app.uniswap.org/explore/pools/base/0x78d4b1a8538ce7a99414a868591331c9e9ff7ea0f2dd8a4474cfe4b24a7c9cc2)
+
+Thank you for your support! 🙌
